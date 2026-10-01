@@ -1,0 +1,9 @@
+node_modules/
+corpus_files/
+.env
+.env.*
+*.db
+*.db-shm
+*.db-wal
+*.xml
+.DS_Store
