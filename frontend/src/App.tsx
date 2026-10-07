@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from "react";
+import CollocationDistributionChart from "./components/CollocationDistributionChart";
 
 type SearchType = "word" | "lemma" | "pos";
 
 type Collocation = {
   word: string;
   frequency: number;
-  left_frequency: number;
-  right_frequency: number;
+  positions: Record<string, number>;
 };
 
 interface KwicResult {
@@ -87,6 +87,9 @@ export default function App() {
 
   // Currently selected result for the Details modal
   const [selectedResult, setSelectedResult] = useState<KwicResult | null>(null);
+  const [selectedCollocation, setSelectedCollocation] = useState<string | null>(
+    null,
+  );
 
   // -------------------------------------------------------
   // Fetch corpus data
@@ -176,6 +179,7 @@ export default function App() {
     setCollocationsLoading(true);
     setCollocationsError("");
     setCollocations([]);
+    setSelectedCollocation(null);
 
     try {
       const params = new URLSearchParams();
@@ -843,7 +847,8 @@ export default function App() {
           <h2 className="text-lg font-semibold text-slate-800">Collocations</h2>
 
           <p className="mt-1 text-sm text-slate-500">
-            Find the words occurring around the current search term.
+            See how often each collocate occurs within the selected window. Open
+            Distribution to see its position relative to the search term.
           </p>
         </div>
 
@@ -861,11 +866,11 @@ export default function App() {
                 id="collocation-left"
                 type="number"
                 min="0"
-                max="20"
+                max="5"
                 value={collocationLeft}
                 onChange={(e) =>
                   setCollocationLeft(
-                    Math.max(0, Math.min(20, Number(e.target.value))),
+                    Math.max(0, Math.min(5, Number(e.target.value))),
                   )
                 }
                 className="w-24 px-3 py-2 border border-slate-300 rounded-lg
@@ -886,11 +891,11 @@ export default function App() {
                 id="collocation-right"
                 type="number"
                 min="0"
-                max="20"
+                max="5"
                 value={collocationRight}
                 onChange={(e) =>
                   setCollocationRight(
-                    Math.max(0, Math.min(20, Number(e.target.value))),
+                    Math.max(0, Math.min(5, Number(e.target.value))),
                   )
                 }
                 className="w-24 px-3 py-2 border border-slate-300 rounded-lg
@@ -928,48 +933,87 @@ export default function App() {
               No collocations found.
             </div>
           ) : (
-            <div className="overflow-x-auto border border-slate-200 rounded-lg">
-              <table className="w-full text-sm">
+            <div className="w-full max-w-2xl mx-auto overflow-x-auto border border-slate-200 rounded-lg">
+              <table className="w-full">
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
-                    <th className="px-4 py-3 text-left font-semibold text-slate-700">
+                    <th className="px-4 py-3 font-semibold text-slate-700">
                       Collocate
                     </th>
 
-                    <th className="px-4 py-3 text-right font-semibold text-slate-700">
+                    <th className="px-4 py-3 font-semibold text-slate-700">
                       Frequency
-                    </th>
-
-                    <th className="px-4 py-3 text-right font-semibold text-slate-700">
-                      Left
-                    </th>
-
-                    <th className="px-4 py-3 text-right font-semibold text-slate-700">
-                      Right
                     </th>
                   </tr>
                 </thead>
 
                 <tbody className="divide-y divide-slate-100">
-                  {collocations.map((collocation) => (
-                    <tr key={collocation.word} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 font-medium text-slate-800">
-                        {collocation.word}
-                      </td>
+                  {collocations.map((collocation) => {
+                    const isSelected = selectedCollocation === collocation.word;
+                    const positionCount = Object.keys(
+                      collocation.positions,
+                    ).length;
 
-                      <td className="px-4 py-3 text-right text-slate-600">
-                        {collocation.frequency.toLocaleString()}
-                      </td>
+                    const hasDistribution = positionCount > 1;
 
-                      <td className="px-4 py-3 text-right text-slate-600">
-                        {collocation.left_frequency.toLocaleString()}
-                      </td>
+                    return (
+                      <React.Fragment key={collocation.word}>
+                        <tr
+                          className={
+                            isSelected ? "bg-slate-50" : "hover:bg-slate-50"
+                          }
+                        >
+                          <td className="px-4 py-3 text-center font-medium text-slate-800">
+                            {collocation.word}
+                          </td>
 
-                      <td className="px-4 py-3 text-right text-slate-600">
-                        {collocation.right_frequency.toLocaleString()}
-                      </td>
-                    </tr>
-                  ))}
+                          <td className="px-4 py-3 text-slate-600">
+                            <div className="flex items-center justify-center gap-3">
+                              <span>
+                                {collocation.frequency.toLocaleString()}
+                              </span>
+
+                              {hasDistribution && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setSelectedCollocation((current) =>
+                                      current === collocation.word
+                                        ? null
+                                        : collocation.word,
+                                    )
+                                  }
+                                  className="inline-flex items-center px-3 py-1.5
+                                  text-sm font-medium rounded-md
+                                  border border-slate-300
+                                  hover:bg-slate-100
+                                  focus:outline-none
+                                  focus:ring-2
+                                  focus:ring-slate-400"
+                                >
+                                  {isSelected ? "Close graph" : "Distribution"}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+
+                        {isSelected && (
+                          <tr>
+                            <td colSpan={3} className="px-6 py-6 bg-slate-50">
+                              <div className="max-w-4xl mx-auto">
+                                <CollocationDistributionChart
+                                  collocate={collocation.word}
+                                  target={submittedQuery}
+                                  positions={collocation.positions}
+                                />
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
