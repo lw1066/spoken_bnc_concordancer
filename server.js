@@ -218,20 +218,12 @@ function getSelectedWords(filterWords) {
     .filter(Boolean);
 }
 
-// ---------------------------------------------------------
-// Basic route
-// ---------------------------------------------------------
-
 app.get("/", (req, res) => {
   res.json({
     status: "success",
     message: "Spoken BNC2014 API is running",
   });
 });
-
-// ---------------------------------------------------------
-// Search
-// ---------------------------------------------------------
 
 app.get("/api/search", (req, res) => {
   const searchStart = Date.now();
@@ -258,11 +250,6 @@ app.get("/api/search", (req, res) => {
     // -----------------------------------------------------
     // LINGUISTIC SEARCH
     // -----------------------------------------------------
-
-    // -----------------------------------------------------
-    // LINGUISTIC SEARCH
-    // -----------------------------------------------------
-
     const hasLinguisticSearch =
       String(lemma).trim() ||
       String(pos).trim() ||
@@ -785,6 +772,119 @@ app.get("/api/search", (req, res) => {
     return res
       .status(500)
       .json({ error: "Internal server error", details: error.message });
+  }
+});
+
+app.get("/api/collocations", (req, res) => {
+  const { query, left = 3, right = 3, limit = 100 } = req.query;
+
+  console.log("COLLOCATION QUERY:", query);
+  console.log("LEFT WINDOW:", left);
+  console.log("RIGHT WINDOW:", right);
+
+  try {
+    const cleanQuery = String(query || "").trim();
+
+    if (!cleanQuery) {
+      return res.status(400).json({
+        error: "Provide a query for the target word.",
+      });
+    }
+
+    const leftWindow = Math.max(0, Number(left));
+    const rightWindow = Math.max(0, Number(right));
+    const resultLimit = Math.min(Math.max(1, Number(limit)), 1000);
+
+    if (!Number.isInteger(leftWindow) || !Number.isInteger(rightWindow)) {
+      return res.status(400).json({
+        error: "Left and right windows must be whole numbers.",
+      });
+    }
+
+    const wordSearch = buildWordSearch(cleanQuery);
+
+    if (!wordSearch) {
+      return res.status(400).json({
+        error: "Word searches support zero or one '*' wildcard.",
+      });
+    }
+
+    const sql = `
+      SELECT
+        LOWER(collocate.word) AS word,
+        COUNT(*) AS frequency,
+
+        SUM(
+          CASE
+            WHEN collocate.position < w.position THEN 1
+            ELSE 0
+          END
+        ) AS left_frequency,
+
+        SUM(
+          CASE
+            WHEN collocate.position > w.position THEN 1
+            ELSE 0
+          END
+        ) AS right_frequency
+
+      FROM words w
+
+      JOIN words collocate
+        ON collocate.utterance_id = w.utterance_id
+
+        AND (
+          (
+            collocate.position < w.position
+            AND collocate.position >= w.position - ?
+          )
+          OR
+          (
+            collocate.position > w.position
+            AND collocate.position <= w.position + ?
+          )
+        )
+
+      WHERE ${wordSearch.sql}
+
+          AND collocate.word GLOB '*[A-Za-z0-9]*'    
+          AND collocate.word NOT LIKE '--%'
+
+      GROUP BY LOWER(collocate.word)
+
+      ORDER BY
+        frequency DESC,
+        word ASC
+
+      LIMIT ?
+    `;
+
+    const params = [leftWindow, rightWindow, ...wordSearch.params, resultLimit];
+
+    const collocations = db
+      .prepare(sql)
+      .all(...params)
+      .map((row) => ({
+        word: row.word,
+        frequency: row.frequency,
+        left_frequency: row.left_frequency,
+        right_frequency: row.right_frequency,
+      }));
+
+    console.log("COLLOCATION RESULTS:", collocations.length);
+
+    res.json({
+      query: cleanQuery,
+      left_window: leftWindow,
+      right_window: rightWindow,
+      collocations,
+    });
+  } catch (error) {
+    console.error("Collocation search error:", error);
+
+    res.status(500).json({
+      error: "Collocation search failed.",
+    });
   }
 });
 
