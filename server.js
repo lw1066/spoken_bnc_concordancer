@@ -783,6 +783,10 @@ app.get("/api/collocations", (req, res) => {
   console.log("RIGHT WINDOW:", right);
 
   try {
+    // -------------------------------------------------------
+    // Validate query
+    // -------------------------------------------------------
+
     const cleanQuery = String(query || "").trim();
 
     if (!cleanQuery) {
@@ -791,15 +795,55 @@ app.get("/api/collocations", (req, res) => {
       });
     }
 
-    const leftWindow = Math.max(0, Number(left));
-    const rightWindow = Math.max(0, Number(right));
-    const resultLimit = Math.min(Math.max(1, Number(limit)), 1000);
+    // -------------------------------------------------------
+    // Validate window sizes
+    //
+    // Default: 3 words
+    // Maximum: 5 words
+    // -------------------------------------------------------
 
-    if (!Number.isInteger(leftWindow) || !Number.isInteger(rightWindow)) {
+    const leftWindow = Number(left);
+    const rightWindow = Number(right);
+
+    if (
+      !Number.isInteger(leftWindow) ||
+      !Number.isInteger(rightWindow) ||
+      leftWindow < 0 ||
+      rightWindow < 0 ||
+      leftWindow > 5 ||
+      rightWindow > 5
+    ) {
       return res.status(400).json({
-        error: "Left and right windows must be whole numbers.",
+        error: "Left and right windows must be whole numbers between 0 and 5.",
       });
     }
+
+    // -------------------------------------------------------
+    // Validate result limit
+    // -------------------------------------------------------
+
+    const resultLimit = Number(limit);
+
+    if (
+      !Number.isInteger(resultLimit) ||
+      resultLimit < 1 ||
+      resultLimit > 1000
+    ) {
+      return res.status(400).json({
+        error: "Limit must be a whole number between 1 and 1000.",
+      });
+    }
+
+    // -------------------------------------------------------
+    // Build target word search
+    //
+    // Supports:
+    //
+    // word
+    // word*
+    // *word
+    // *word*
+    // -------------------------------------------------------
 
     const wordSearch = buildWordSearch(cleanQuery);
 
@@ -809,46 +853,71 @@ app.get("/api/collocations", (req, res) => {
       });
     }
 
+    // -------------------------------------------------------
+    // Build position columns dynamically
+    //
+    // Example with left=3 and right=3:
+    //
+    // -3, -2, -1, +1, +2, +3
+    //
+    // Position 0 is the target itself and is excluded.
+    // -------------------------------------------------------
+
+    const positionExpressions = [];
+
+    for (let position = -leftWindow; position <= rightWindow; position++) {
+      if (position === 0) {
+        continue;
+      }
+
+      positionExpressions.push(`
+        SUM(
+          CASE
+            WHEN collocate.position = w.position + ${position}
+            THEN 1
+            ELSE 0
+          END
+        ) AS "${position}"
+      `);
+    }
+
+    const positionSelect =
+      positionExpressions.length > 0
+        ? `,\n${positionExpressions.join(",\n")}`
+        : "";
+
+    // -------------------------------------------------------
+    // Collocation query
+    //
+    // w          = target word
+    // collocate  = nearby word
+    //
+    // Both must belong to the same utterance.
+    // -------------------------------------------------------
+
     const sql = `
       SELECT
         LOWER(collocate.word) AS word,
-        COUNT(*) AS frequency,
-
-        SUM(
-          CASE
-            WHEN collocate.position < w.position THEN 1
-            ELSE 0
-          END
-        ) AS left_frequency,
-
-        SUM(
-          CASE
-            WHEN collocate.position > w.position THEN 1
-            ELSE 0
-          END
-        ) AS right_frequency
+        COUNT(*) AS frequency
+        ${positionSelect}
 
       FROM words w
 
       JOIN words collocate
         ON collocate.utterance_id = w.utterance_id
 
-        AND (
-          (
-            collocate.position < w.position
-            AND collocate.position >= w.position - ?
-          )
-          OR
-          (
-            collocate.position > w.position
-            AND collocate.position <= w.position + ?
-          )
-        )
+        AND collocate.position >= w.position - ?
+        AND collocate.position <= w.position + ?
+
+        AND collocate.position != w.position
 
       WHERE ${wordSearch.sql}
 
-          AND collocate.word GLOB '*[A-Za-z0-9]*'    
-          AND collocate.word NOT LIKE '--%'
+        -- Remove punctuation-only tokens
+        AND collocate.word GLOB '*[A-Za-z0-9]*'
+
+        -- Remove BNC annotation tokens
+        AND collocate.word NOT LIKE '--%'
 
       GROUP BY LOWER(collocate.word)
 
@@ -861,19 +930,41 @@ app.get("/api/collocations", (req, res) => {
 
     const params = [leftWindow, rightWindow, ...wordSearch.params, resultLimit];
 
-    const collocations = db
-      .prepare(sql)
-      .all(...params)
-      .map((row) => ({
+    // -------------------------------------------------------
+    // Execute query
+    // -------------------------------------------------------
+
+    const rows = db.prepare(sql).all(...params);
+
+    // -------------------------------------------------------
+    // Convert SQL result into frontend-friendly structure
+    // -------------------------------------------------------
+
+    const collocations = rows.map((row) => {
+      const positions = {};
+
+      for (let position = -leftWindow; position <= rightWindow; position++) {
+        if (position === 0) {
+          continue;
+        }
+
+        positions[String(position)] = row[String(position)] || 0;
+      }
+
+      return {
         word: row.word,
         frequency: row.frequency,
-        left_frequency: row.left_frequency,
-        right_frequency: row.right_frequency,
-      }));
+        positions,
+      };
+    });
 
     console.log("COLLOCATION RESULTS:", collocations.length);
 
-    res.json({
+    // -------------------------------------------------------
+    // Response
+    // -------------------------------------------------------
+
+    return res.json({
       query: cleanQuery,
       left_window: leftWindow,
       right_window: rightWindow,
@@ -882,7 +973,7 @@ app.get("/api/collocations", (req, res) => {
   } catch (error) {
     console.error("Collocation search error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       error: "Collocation search failed.",
     });
   }
