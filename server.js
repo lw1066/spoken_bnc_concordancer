@@ -978,6 +978,188 @@ app.get("/api/collocations", (req, res) => {
     });
   }
 });
+// ---------------------------------------------------------
+// COLLOCATION CONCORDANCE
+// ---------------------------------------------------------
+
+app.get("/api/collocations/concordance", (req, res) => {
+  const {
+    target,
+    collocate,
+    position,
+    left = 5,
+    right = 5,
+    limit = 20,
+    page = 1,
+  } = req.query;
+
+  const targetWord = String(target || "")
+    .trim()
+    .toLowerCase();
+  const collocateWord = String(collocate || "")
+    .trim()
+    .toLowerCase();
+
+  const leftWindow = Math.max(0, Math.min(5, parseInt(left, 10) || 0));
+
+  const rightWindow = Math.max(0, Math.min(5, parseInt(right, 10) || 0));
+
+  const maxRows = Math.max(1, parseInt(limit, 10) || 20);
+
+  const pageNum = Math.max(1, parseInt(page, 10) || 1);
+
+  const hasPosition =
+    position !== undefined &&
+    position !== null &&
+    String(position).trim() !== "";
+
+  const relativePosition = hasPosition ? parseInt(position, 10) : null;
+
+  if (!targetWord || !collocateWord) {
+    return res.status(400).json({
+      error: "target and collocate are required",
+    });
+  }
+
+  if (
+    hasPosition &&
+    (Number.isNaN(relativePosition) ||
+      relativePosition === 0 ||
+      relativePosition < -5 ||
+      relativePosition > 5)
+  ) {
+    return res.status(400).json({
+      error: "position must be between -5 and -1 or 1 and 5",
+    });
+  }
+
+  try {
+    /*
+     * Find every occurrence where the collocate occurs
+     * within the requested window around the target.
+     *
+     * If position is supplied, we only return that exact
+     * relative position.
+     */
+
+    const conditions = ["LOWER(target.word) = ?", "LOWER(collocate.word) = ?"];
+
+    const parameters = [targetWord, collocateWord];
+
+    if (hasPosition) {
+      conditions.push("collocate.position = target.position + ?");
+
+      parameters.push(relativePosition);
+    } else {
+      conditions.push(`
+        collocate.position > target.position - ?
+        AND collocate.position < target.position + ?
+      `);
+
+      parameters.push(leftWindow + 1);
+      parameters.push(rightWindow + 1);
+    }
+
+    const matchingRows = db
+      .prepare(
+        `
+        SELECT
+          target.utterance_id,
+          target.position AS target_position,
+          collocate.position AS collocate_position,
+          collocate.word AS collocate_word
+        FROM words target
+        JOIN words collocate
+          ON collocate.utterance_id = target.utterance_id
+        WHERE ${conditions.join(" AND ")}
+        ORDER BY target.utterance_id, target.position
+      `,
+      )
+      .all(...parameters);
+
+    /*
+     * Each row represents one occurrence of the collocate
+     * associated with one occurrence of the target.
+     */
+
+    const totalMatches = matchingRows.length;
+
+    const offset = (pageNum - 1) * maxRows;
+
+    const paginatedRows = matchingRows.slice(offset, offset + maxRows);
+
+    const results = [];
+
+    for (const match of paginatedRows) {
+      const utteranceWords = getUtteranceWords(match.utterance_id);
+
+      const collocateIndex = utteranceWords.findIndex(
+        (word) => word.position === match.collocate_position,
+      );
+
+      if (collocateIndex === -1) {
+        continue;
+      }
+
+      const context = buildTokenContext(
+        utteranceWords,
+        collocateIndex,
+        Math.max(leftWindow, rightWindow),
+      );
+
+      const utteranceMap = getUtteranceMap([match.utterance_id]);
+
+      const utterance = utteranceMap.get(match.utterance_id);
+
+      if (!utterance) {
+        continue;
+      }
+
+      results.push({
+        id: utterance.id,
+        text_id: utterance.text_id,
+        corpus_id: utterance.corpus_id,
+        filename: utterance.filename,
+        genre: utterance.genre,
+        speaker: utterance.speaker,
+        utterance_number: utterance.utterance_number,
+        trans: utterance.trans,
+        who_confidence: utterance.who_confidence,
+
+        left_context: context.left_context,
+        target: context.target,
+        right_context: context.right_context,
+
+        utterance: utterance.display_body,
+
+        position: match.collocate_position - match.target_position,
+
+        collocation_target: targetWord,
+        collocation_word: collocateWord,
+      });
+    }
+
+    return res.json({
+      status: "success",
+      target: targetWord,
+      collocate: collocateWord,
+      position: hasPosition ? relativePosition : null,
+      left_window: leftWindow,
+      right_window: rightWindow,
+      total_matches: totalMatches,
+      page: pageNum,
+      limit: maxRows,
+      results,
+    });
+  } catch (error) {
+    console.error("Collocation concordance error:", error);
+
+    return res.status(500).json({
+      error: "Internal collocation concordance failure",
+      details: error.message,
+    });
+  }
+});
 
 // ---------------------------------------------------------
 // Start server
