@@ -2,6 +2,13 @@ import React, { useState, useEffect } from "react";
 
 type SearchType = "word" | "lemma" | "pos";
 
+type Collocation = {
+  word: string;
+  frequency: number;
+  left_frequency: number;
+  right_frequency: number;
+};
+
 interface KwicResult {
   id: number;
   text_id: number;
@@ -69,6 +76,14 @@ export default function App() {
   const [loading, setLoading] = useState<boolean>(false);
 
   const [error, setError] = useState<string>("");
+
+  const [collocationLeft, setCollocationLeft] = useState<number>(3);
+  const [collocationRight, setCollocationRight] = useState<number>(3);
+
+  const [collocations, setCollocations] = useState<Collocation[]>([]);
+  const [collocationsLoading, setCollocationsLoading] =
+    useState<boolean>(false);
+  const [collocationsError, setCollocationsError] = useState<string>("");
 
   // Currently selected result for the Details modal
   const [selectedResult, setSelectedResult] = useState<KwicResult | null>(null);
@@ -147,6 +162,47 @@ export default function App() {
       );
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchCollocations = async () => {
+    const trimmedQuery = submittedQuery.trim();
+
+    if (!trimmedQuery) {
+      setCollocations([]);
+      return;
+    }
+
+    setCollocationsLoading(true);
+    setCollocationsError("");
+    setCollocations([]);
+
+    try {
+      const params = new URLSearchParams();
+
+      params.set("query", trimmedQuery);
+      params.set("left", String(collocationLeft));
+      params.set("right", String(collocationRight));
+
+      const response = await fetch(
+        `http://localhost:8000/api/collocations?${params.toString()}`,
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch collocations.");
+      }
+
+      const data = await response.json();
+
+      setCollocations(data.collocations || []);
+    } catch (err) {
+      console.error("Collocation error:", err);
+
+      setCollocationsError(
+        err instanceof Error ? err.message : "Failed to fetch collocations.",
+      );
+    } finally {
+      setCollocationsLoading(false);
     }
   };
 
@@ -779,6 +835,145 @@ export default function App() {
               </nav>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="bg-white border border-slate-200 shadow-sm rounded-xl mb-6">
+        <div className="px-6 py-4 border-b border-slate-200">
+          <h2 className="text-lg font-semibold text-slate-800">Collocations</h2>
+
+          <p className="mt-1 text-sm text-slate-500">
+            Find the words occurring around the current search term.
+          </p>
+        </div>
+
+        <div className="p-6">
+          <div className="flex flex-wrap items-end gap-4 mb-6">
+            <div>
+              <label
+                htmlFor="collocation-left"
+                className="block mb-2 text-sm font-medium text-slate-700"
+              >
+                Words to left
+              </label>
+
+              <input
+                id="collocation-left"
+                type="number"
+                min="0"
+                max="20"
+                value={collocationLeft}
+                onChange={(e) =>
+                  setCollocationLeft(
+                    Math.max(0, Math.min(20, Number(e.target.value))),
+                  )
+                }
+                className="w-24 px-3 py-2 border border-slate-300 rounded-lg
+            text-sm focus:outline-none focus:ring-2
+            focus:ring-slate-400"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="collocation-right"
+                className="block mb-2 text-sm font-medium text-slate-700"
+              >
+                Words to right
+              </label>
+
+              <input
+                id="collocation-right"
+                type="number"
+                min="0"
+                max="20"
+                value={collocationRight}
+                onChange={(e) =>
+                  setCollocationRight(
+                    Math.max(0, Math.min(20, Number(e.target.value))),
+                  )
+                }
+                className="w-24 px-3 py-2 border border-slate-300 rounded-lg
+            text-sm focus:outline-none focus:ring-2
+            focus:ring-slate-400"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={fetchCollocations}
+              disabled={collocationsLoading || !submittedQuery.trim()}
+              className="px-4 py-2 bg-slate-800 text-white rounded-lg
+          text-sm font-medium hover:bg-slate-700
+          disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {collocationsLoading
+                ? "Finding collocations..."
+                : "Find collocations"}
+            </button>
+          </div>
+
+          {collocationsError && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm text-red-700">{collocationsError}</p>
+            </div>
+          )}
+
+          {collocationsLoading ? (
+            <div className="py-10 text-center text-sm text-slate-500">
+              Querying SQLite Index...
+            </div>
+          ) : collocations.length === 0 ? (
+            <div className="py-10 text-center text-sm text-slate-400">
+              No collocations found.
+            </div>
+          ) : (
+            <div className="overflow-x-auto border border-slate-200 rounded-lg">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-700">
+                      Collocate
+                    </th>
+
+                    <th className="px-4 py-3 text-right font-semibold text-slate-700">
+                      Frequency
+                    </th>
+
+                    <th className="px-4 py-3 text-right font-semibold text-slate-700">
+                      Left
+                    </th>
+
+                    <th className="px-4 py-3 text-right font-semibold text-slate-700">
+                      Right
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-slate-100">
+                  {collocations.map((collocation) => (
+                    <tr key={collocation.word} className="hover:bg-slate-50">
+                      <td className="px-4 py-3 font-medium text-slate-800">
+                        {collocation.word}
+                      </td>
+
+                      <td className="px-4 py-3 text-right text-slate-600">
+                        {collocation.frequency.toLocaleString()}
+                      </td>
+
+                      <td className="px-4 py-3 text-right text-slate-600">
+                        {collocation.left_frequency.toLocaleString()}
+                      </td>
+
+                      <td className="px-4 py-3 text-right text-slate-600">
+                        {collocation.right_frequency.toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
 
