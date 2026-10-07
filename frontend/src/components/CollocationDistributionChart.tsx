@@ -12,12 +12,14 @@ type CollocationDistributionChartProps = {
   collocate: string;
   target: string;
   positions: Record<string, number>;
+  onPositionClick?: (position: number) => void;
 };
 
 export default function CollocationDistributionChart({
   collocate,
   target,
   positions,
+  onPositionClick,
 }: CollocationDistributionChartProps) {
   const positionNumbers = Object.keys(positions).map(Number);
 
@@ -99,7 +101,27 @@ export default function CollocationDistributionChart({
               labelFormatter={(label) => `Position: ${label}`}
             />
 
-            <Bar dataKey="frequency" name="Frequency" radius={[4, 4, 0, 0]} />
+            <Bar
+              dataKey="frequency"
+              name="Frequency"
+              radius={[4, 4, 0, 0]}
+              onClick={(_, index) => {
+                if (!onPositionClick) return;
+
+                const position = chartData[index];
+
+                if (!position) return;
+
+                const numericPosition = position.position.startsWith("+")
+                  ? Number(position.position.slice(1))
+                  : Number(position.position);
+
+                if (!Number.isNaN(numericPosition) && numericPosition !== 0) {
+                  onPositionClick(numericPosition);
+                }
+              }}
+              cursor="pointer"
+            />
           </BarChart>
         </ResponsiveContainer>
       </div>

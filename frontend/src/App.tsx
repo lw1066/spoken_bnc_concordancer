@@ -53,43 +53,33 @@ export default function App() {
 
   // What is currently typed in the input
   const [query, setQuery] = useState<string>("honestly");
-
   // The query that has actually been submitted
   const [submittedQuery, setSubmittedQuery] = useState<string>("honestly");
-
   const [windowSize, setWindowSize] = useState<number>(5);
-
   const [pendingWindowSize, setPendingWindowSize] = useState<number>(5);
-
   const [limit, setLimit] = useState<number>(20);
-
   const [page, setPage] = useState<number>(1);
-
   const [totalMatches, setTotalMatches] = useState<number>(0);
-
   const [uniqueWords, setUniqueWords] = useState<UniqueWord[]>([]);
-
   const [selectedWords, setSelectedWords] = useState<string[]>([]);
-
   const [results, setResults] = useState<KwicResult[]>([]);
-
   const [loading, setLoading] = useState<boolean>(false);
-
   const [error, setError] = useState<string>("");
-
   const [collocationLeft, setCollocationLeft] = useState<number>(3);
   const [collocationRight, setCollocationRight] = useState<number>(3);
-
   const [collocations, setCollocations] = useState<Collocation[]>([]);
   const [collocationsLoading, setCollocationsLoading] =
     useState<boolean>(false);
   const [collocationsError, setCollocationsError] = useState<string>("");
-
   // Currently selected result for the Details modal
   const [selectedResult, setSelectedResult] = useState<KwicResult | null>(null);
   const [selectedCollocation, setSelectedCollocation] = useState<string | null>(
     null,
   );
+  const [collocationFilter, setCollocationFilter] = useState<{
+    word: string;
+    position: number | null;
+  } | null>(null);
 
   // -------------------------------------------------------
   // Fetch corpus data
@@ -210,6 +200,54 @@ export default function App() {
     }
   };
 
+  const fetchCollocationConcordance = async (
+    collocate: string,
+    position: number | null = null,
+    requestedPage: number = 1,
+  ) => {
+    setLoading(true);
+    setError("");
+    setResults([]);
+
+    try {
+      const params = new URLSearchParams();
+
+      params.set("target", submittedQuery);
+      params.set("collocate", collocate);
+      params.set("left", String(collocationLeft));
+      params.set("right", String(collocationRight));
+      params.set("limit", String(limit));
+      params.set("page", String(requestedPage));
+
+      if (position !== null) {
+        params.set("position", String(position));
+      }
+
+      const response = await fetch(
+        `http://localhost:8000/api/collocations/concordance?${params.toString()}`,
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch collocation concordance.");
+      }
+
+      const data = await response.json();
+
+      setResults(data.results || []);
+      setTotalMatches(data.total_matches || 0);
+    } catch (err) {
+      console.error("Collocation concordance error:", err);
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to fetch collocation concordance.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // -------------------------------------------------------
   // Submit a new search
   // -------------------------------------------------------
@@ -222,6 +260,7 @@ export default function App() {
       setTotalMatches(0);
       setUniqueWords([]);
       setSelectedWords([]);
+      setCollocationFilter(null);
       setPage(1);
       setError("");
       return;
@@ -229,6 +268,7 @@ export default function App() {
 
     setPage(1);
     setSelectedWords([]);
+    setCollocationFilter(null);
     setSubmittedSearchType(searchType);
     setSubmittedQuery(trimmedQuery);
   };
@@ -246,6 +286,16 @@ export default function App() {
   // -------------------------------------------------------
 
   useEffect(() => {
+    if (collocationFilter) {
+      fetchCollocationConcordance(
+        collocationFilter.word,
+        collocationFilter.position,
+        page,
+      );
+
+      return;
+    }
+
     fetchCorpusData();
   }, [
     submittedSearchType,
@@ -254,6 +304,7 @@ export default function App() {
     limit,
     page,
     selectedWords,
+    collocationFilter,
   ]);
 
   useEffect(() => {
@@ -964,7 +1015,25 @@ export default function App() {
                           }
                         >
                           <td className="px-4 py-3 text-center font-medium text-slate-800">
-                            {collocation.word}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPage(1);
+
+                                setCollocationFilter({
+                                  word: collocation.word,
+                                  position: null,
+                                });
+                              }}
+                              className="text-slate-800 hover:text-blue-600
+      hover:underline
+      focus:outline-none
+      focus:ring-2
+      focus:ring-slate-400
+      rounded"
+                            >
+                              {collocation.word}
+                            </button>
                           </td>
 
                           <td className="px-4 py-3 text-slate-600">
@@ -1000,12 +1069,20 @@ export default function App() {
 
                         {isSelected && (
                           <tr>
-                            <td colSpan={3} className="px-6 py-6 bg-slate-50">
+                            <td colSpan={2} className="px-6 py-6 bg-slate-50">
                               <div className="max-w-4xl mx-auto">
                                 <CollocationDistributionChart
                                   collocate={collocation.word}
                                   target={submittedQuery}
                                   positions={collocation.positions}
+                                  onPositionClick={(position) => {
+                                    setPage(1);
+
+                                    setCollocationFilter({
+                                      word: collocation.word,
+                                      position,
+                                    });
+                                  }}
                                 />
                               </div>
                             </td>
