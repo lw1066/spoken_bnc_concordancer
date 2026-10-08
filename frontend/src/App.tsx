@@ -1,49 +1,15 @@
 import React, { useState, useEffect } from "react";
 import CollocationDistributionChart from "./components/CollocationDistributionChart";
 
-type SearchType = "word" | "lemma" | "pos";
-
-type Collocation = {
-  word: string;
-  frequency: number;
-  positions: Record<string, number>;
-};
-
-interface KwicResult {
-  id: number;
-  text_id: number;
-  corpus_id: string;
-  filename: string;
-  genre: string;
-  speaker: string;
-  utterance_number: string;
-  trans: string | null;
-  who_confidence: string | null;
-  left_context: string;
-  target: string;
-  right_context: string;
-  utterance: string;
-  lemma?: string | null;
-  pos?: string | null;
-  class?: string | null;
-  usas?: string | null;
-  position?: number;
-}
-
-interface UniqueWord {
-  word: string;
-  count: number;
-}
-
-interface ApiResponse {
-  status: string;
-  total_matches: number;
-  page: number;
-  limit: number;
-  unique_words: UniqueWord[];
-  results: KwicResult[];
-  error?: string;
-}
+import type {
+  ApiResponse,
+  Collocation,
+  KwicResult,
+  SearchType,
+  UniqueWord,
+} from "./types/corpus";
+import SearchControls from "./components/SearchControls";
+import VocabularyVariants from "./components/VocabularyVariants";
 
 export default function App() {
   const [searchType, setSearchType] = useState<SearchType>("word");
@@ -420,130 +386,20 @@ export default function App() {
           </p>
         </header>
 
-        {/* ------------------------------------------------ */}
-        {/* Search controls                                  */}
-        {/* ------------------------------------------------ */}
-
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6">
-          {/* Search Type */}
-
-          <div>
-            <label
-              htmlFor="search-type"
-              className="block text-sm font-semibold text-slate-700 mb-2"
-            >
-              Search Type
-            </label>
-
-            <select
-              id="search-type"
-              value={searchType}
-              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
-                setSearchType(e.target.value as SearchType);
-              }}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-white"
-            >
-              <option value="word">Word</option>
-              <option value="lemma">Lemma</option>
-              <option value="pos">POS</option>
-            </select>
-          </div>
-
-          {/* Search Input */}
-
-          <div>
-            <label
-              htmlFor="search-query"
-              className="block text-sm font-semibold text-slate-700 mb-2"
-            >
-              {searchLabel}
-            </label>
-
-            <input
-              id="search-query"
-              type="text"
-              value={query}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setQuery(e.target.value)
-              }
-              onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
-                if (e.key === "Enter") {
-                  handleSearch();
-                }
-              }}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-              placeholder={searchPlaceholder}
-            />
-
-            {searchType === "pos" && (
-              <p className="mt-1.5 text-xs text-slate-400">
-                Enter a BNC POS tag such as NN1 or VV0.
-              </p>
-            )}
-
-            <button
-              type="button"
-              onClick={handleSearch}
-              disabled={loading}
-              className="mt-3 w-full px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {loading ? "Searching..." : "Go"}
-            </button>
-          </div>
-
-          {/* Context Width */}
-
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label
-                htmlFor="context-window"
-                className="text-sm font-medium text-slate-700"
-              >
-                Context window
-              </label>
-
-              <span className="text-sm text-slate-500">
-                {pendingWindowSize} words
-              </span>
-            </div>
-
-            <input
-              id="context-window"
-              type="range"
-              min="1"
-              max="25"
-              step="1"
-              value={pendingWindowSize}
-              onChange={(e) => {
-                const value = Number(e.target.value);
-                setPendingWindowSize(value);
-              }}
-              className="w-full"
-            />
-          </div>
-
-          {/* Rows Visible */}
-
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">
-              Rows Visible Limit
-            </label>
-
-            <select
-              value={limit}
-              onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                setLimit(Number(e.target.value))
-              }
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-white"
-            >
-              <option value={10}>10 Matches</option>
-              <option value={20}>20 Matches</option>
-              <option value={50}>50 Matches</option>
-              <option value={100}>100 Matches</option>
-            </select>
-          </div>
-        </div>
-
+        <SearchControls
+          searchType={searchType}
+          query={query}
+          pendingWindowSize={pendingWindowSize}
+          limit={limit}
+          loading={loading}
+          searchLabel={searchLabel}
+          searchPlaceholder={searchPlaceholder}
+          onSearchTypeChange={setSearchType}
+          onQueryChange={setQuery}
+          onWindowSizeChange={setPendingWindowSize}
+          onLimitChange={setLimit}
+          onSearch={handleSearch}
+        />
         {/* ------------------------------------------------ */}
         {/* Search information                               */}
         {/* ------------------------------------------------ */}
@@ -558,170 +414,14 @@ export default function App() {
           </div>
         )}
 
-        {/* ------------------------------------------------ */}
-        {/* Wildcard variants                                */}
-        {/* ------------------------------------------------ */}
-
-        {showVocabularyVariants && uniqueWords.length > 0 && (
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 mb-6 overflow-hidden">
-            {/* Panel heading */}
-
-            <div className="px-6 pt-5 pb-4 border-b border-slate-100">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div>
-                  <h4 className="text-sm font-semibold text-slate-800">
-                    Vocabulary Variants
-                  </h4>
-
-                  <p className="text-xs text-slate-500 mt-1">
-                    {uniqueWords.length} distinct words found
-                  </p>
-                </div>
-
-                {selectedWords.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={clearSelectedWords}
-                    className="self-start sm:self-auto inline-flex items-center px-3 py-1.5 rounded-md border border-slate-300 bg-white text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors"
-                  >
-                    Clear all
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* ------------------------------------------------ */}
-            {/* Selected variants                                */}
-            {/* ------------------------------------------------ */}
-
-            {selectedWords.length > 0 && (
-              <div className="px-6 py-4 bg-blue-50/60 border-b border-blue-100">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-blue-800">
-                    Showing only
-                  </span>
-
-                  <span className="text-xs text-blue-600">
-                    {selectedWords.length} selected
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  {selectedWords.map((word) => {
-                    const matchingVariant = uniqueWords.find(
-                      (item) => item.word === word,
-                    );
-
-                    return (
-                      <button
-                        key={`selected-${word}`}
-                        type="button"
-                        onClick={() => removeSelectedWord(word)}
-                        title={`Remove ${word} from the display filter`}
-                        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-600 text-white border border-blue-600 shadow-sm text-xs font-semibold hover:bg-blue-700 transition-colors"
-                      >
-                        <span>{word}</span>
-
-                        {matchingVariant && (
-                          <span className="text-blue-200">
-                            {matchingVariant.count}
-                          </span>
-                        )}
-
-                        <span
-                          aria-hidden="true"
-                          className="text-blue-200 text-sm leading-none"
-                        >
-                          ×
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* ------------------------------------------------ */}
-            {/* All variants                                     */}
-            {/* ------------------------------------------------ */}
-
-            <div className="p-6">
-              <p className="text-xs text-slate-500 mb-3">
-                Click a word to add or remove it from the concordance display.
-              </p>
-
-              <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-2">
-                {uniqueWords.map((item) => {
-                  const isSelected = selectedWords.includes(item.word);
-
-                  return (
-                    <button
-                      key={item.word}
-                      type="button"
-                      onClick={() => toggleWordSelection(item.word)}
-                      aria-pressed={isSelected}
-                      title={
-                        isSelected
-                          ? `Remove ${item.word}`
-                          : `Show only ${item.word}`
-                      }
-                      className={`
-                            inline-flex
-                            items-center
-                            gap-2
-                            px-3
-                            py-1.5
-                            rounded-lg
-                            text-xs
-                            font-medium
-                            border
-                            cursor-pointer
-                            transition-all
-                            duration-150
-                            select-none
-                            ${
-                              isSelected
-                                ? "bg-blue-600 text-white border-blue-600 shadow-sm"
-                                : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-blue-300 hover:text-blue-700"
-                            }
-                          `}
-                    >
-                      <span>{item.word}</span>
-
-                      <span
-                        className={`
-                              min-w-[1.5rem]
-                              text-center
-                              px-1.5
-                              py-0.5
-                              rounded-full
-                              text-[10px]
-                              leading-none
-                              ${
-                                isSelected
-                                  ? "bg-blue-700 text-blue-100"
-                                  : "bg-slate-100 text-slate-500"
-                              }
-                            `}
-                      >
-                        {item.count}
-                      </span>
-
-                      {isSelected && (
-                        <span
-                          aria-hidden="true"
-                          className="text-blue-200 ml-0.5"
-                        >
-                          ✓
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
+        <VocabularyVariants
+          showVocabularyVariants={showVocabularyVariants}
+          uniqueWords={uniqueWords}
+          selectedWords={selectedWords}
+          clearSelectedWords={clearSelectedWords}
+          removeSelectedWord={removeSelectedWord}
+          toggleWordSelection={toggleWordSelection}
+        />
 
         {/* ------------------------------------------------ */}
         {/* Error                                            */}
