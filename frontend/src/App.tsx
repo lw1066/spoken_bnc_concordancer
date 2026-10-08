@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from "react";
-import CollocationDistributionChart from "./components/CollocationDistributionChart";
+import { useState, useEffect } from "react";
 
 import type {
   ApiResponse,
@@ -12,6 +11,8 @@ import SearchControls from "./components/SearchControls";
 import VocabularyVariants from "./components/VocabularyVariants";
 import ConcordanceTable from "./components/ConcordanceTable";
 import Pagination from "./components/Pagination";
+import ResultDetailsModal from "./components/ResultsDetailsModal";
+import CollocationsPanel from "./components/CollocationsPanel";
 
 export default function App() {
   const [searchType, setSearchType] = useState<SearchType>("word");
@@ -48,10 +49,6 @@ export default function App() {
     word: string;
     position: number | null;
   } | null>(null);
-
-  // -------------------------------------------------------
-  // Fetch corpus data
-  // -------------------------------------------------------
 
   const fetchCorpusData = async (): Promise<void> => {
     if (!submittedQuery.trim()) {
@@ -216,10 +213,6 @@ export default function App() {
     }
   };
 
-  // -------------------------------------------------------
-  // Submit a new search
-  // -------------------------------------------------------
-
   const handleSearch = () => {
     const trimmedQuery = query.trim();
 
@@ -323,10 +316,6 @@ export default function App() {
     });
   };
 
-  // -------------------------------------------------------
-  // Remove a selected word
-  // -------------------------------------------------------
-
   const removeSelectedWord = (word: string) => {
     setPage(1);
 
@@ -334,10 +323,6 @@ export default function App() {
       current.filter((selected) => selected !== word),
     );
   };
-
-  // -------------------------------------------------------
-  // Clear all selected variants
-  // -------------------------------------------------------
 
   const clearSelectedWords = () => {
     setPage(1);
@@ -372,10 +357,6 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 py-8 px-4 sm:px-6 lg:px-8 font-sans antialiased">
       <div className="max-w-7xl mx-auto">
-        {/* ------------------------------------------------ */}
-        {/* Header                                           */}
-        {/* ------------------------------------------------ */}
-
         <header className="mb-8 border-b border-slate-200 pb-5">
           <h1 className="text-3xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
             <span>🗣️</span>
@@ -402,9 +383,6 @@ export default function App() {
           onLimitChange={setLimit}
           onSearch={handleSearch}
         />
-        {/* ------------------------------------------------ */}
-        {/* Search information                               */}
-        {/* ------------------------------------------------ */}
 
         {searchType !== "word" && (
           <div className="bg-blue-50 border border-blue-100 px-4 py-3 rounded-lg mb-6">
@@ -424,10 +402,6 @@ export default function App() {
           removeSelectedWord={removeSelectedWord}
           toggleWordSelection={toggleWordSelection}
         />
-
-        {/* ------------------------------------------------ */}
-        {/* Error                                            */}
-        {/* ------------------------------------------------ */}
 
         {error && (
           <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-md mb-6 shadow-sm">
@@ -454,421 +428,32 @@ export default function App() {
           setSelectedResult={setSelectedResult}
         />
 
-        {/* ------------------------------------------------ */}
-        {/* Pagination                                       */}
-        {/* ------------------------------------------------ */}
-
         <Pagination
           page={page}
           totalPages={totalPages}
           onPageChange={setPage}
         />
 
-        <div className="bg-white border border-slate-200 shadow-sm rounded-xl mb-6">
-          <div className="px-6 py-4 border-b border-slate-200">
-            <h2 className="text-lg font-semibold text-slate-800">
-              Collocations
-            </h2>
+        <CollocationsPanel
+          collocations={collocations}
+          collocationsLoading={collocationsLoading}
+          collocationsError={collocationsError}
+          collocationLeft={collocationLeft}
+          collocationRight={collocationRight}
+          selectedCollocation={selectedCollocation}
+          submittedQuery={submittedQuery}
+          setCollocationLeft={setCollocationLeft}
+          setCollocationRight={setCollocationRight}
+          fetchCollocations={fetchCollocations}
+          setPage={setPage}
+          setCollocationFilter={setCollocationFilter}
+          setSelectedCollocation={setSelectedCollocation}
+        />
 
-            <p className="mt-1 text-sm text-slate-500">
-              See how often each collocate occurs within the selected window.
-              Open Distribution to see its position relative to the search term.
-            </p>
-          </div>
-
-          <div className="p-6">
-            <div className="flex flex-wrap items-end gap-4 mb-6">
-              <div>
-                <label
-                  htmlFor="collocation-left"
-                  className="block mb-2 text-sm font-medium text-slate-700"
-                >
-                  Words to left
-                </label>
-
-                <input
-                  id="collocation-left"
-                  type="number"
-                  min="0"
-                  max="5"
-                  value={collocationLeft}
-                  onChange={(e) =>
-                    setCollocationLeft(
-                      Math.max(0, Math.min(5, Number(e.target.value))),
-                    )
-                  }
-                  className="w-24 px-3 py-2 border border-slate-300 rounded-lg
-            text-sm focus:outline-none focus:ring-2
-            focus:ring-slate-400"
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="collocation-right"
-                  className="block mb-2 text-sm font-medium text-slate-700"
-                >
-                  Words to right
-                </label>
-
-                <input
-                  id="collocation-right"
-                  type="number"
-                  min="0"
-                  max="5"
-                  value={collocationRight}
-                  onChange={(e) =>
-                    setCollocationRight(
-                      Math.max(0, Math.min(5, Number(e.target.value))),
-                    )
-                  }
-                  className="w-24 px-3 py-2 border border-slate-300 rounded-lg
-            text-sm focus:outline-none focus:ring-2
-            focus:ring-slate-400"
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={fetchCollocations}
-                disabled={collocationsLoading || !submittedQuery.trim()}
-                className="px-4 py-2 bg-slate-800 text-white rounded-lg
-          text-sm font-medium hover:bg-slate-700
-          disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {collocationsLoading
-                  ? "Finding collocations..."
-                  : "Find collocations"}
-              </button>
-            </div>
-
-            {collocationsError && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                <p className="text-sm text-red-700">{collocationsError}</p>
-              </div>
-            )}
-
-            {collocationsLoading ? (
-              <div className="py-10 text-center text-sm text-slate-500">
-                Querying SQLite Index...
-              </div>
-            ) : collocations.length === 0 ? (
-              <div className="py-10 text-center text-sm text-slate-400">
-                No collocations found.
-              </div>
-            ) : (
-              <div className="w-full max-w-2xl mx-auto overflow-x-auto border border-slate-200 rounded-lg">
-                <table className="w-full">
-                  <thead className="bg-slate-50 border-b border-slate-200">
-                    <tr>
-                      <th className="px-4 py-3 font-semibold text-slate-700">
-                        Collocate
-                      </th>
-
-                      <th className="px-4 py-3 font-semibold text-slate-700">
-                        Frequency
-                      </th>
-                    </tr>
-                  </thead>
-
-                  <tbody className="divide-y divide-slate-100">
-                    {collocations.map((collocation) => {
-                      const isSelected =
-                        selectedCollocation === collocation.word;
-                      const positionCount = Object.keys(
-                        collocation.positions,
-                      ).length;
-
-                      const hasDistribution = positionCount > 1;
-
-                      return (
-                        <React.Fragment key={collocation.word}>
-                          <tr
-                            className={
-                              isSelected ? "bg-slate-50" : "hover:bg-slate-50"
-                            }
-                          >
-                            <td className="px-4 py-3 text-center font-medium text-slate-800">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setPage(1);
-
-                                  setCollocationFilter({
-                                    word: collocation.word,
-                                    position: null,
-                                  });
-                                }}
-                                className="text-slate-800 hover:text-blue-600
-      hover:underline
-      focus:outline-none
-      focus:ring-2
-      focus:ring-slate-400
-      rounded"
-                              >
-                                {collocation.word}
-                              </button>
-                            </td>
-
-                            <td className="px-4 py-3 text-slate-600">
-                              <div className="flex items-center justify-center gap-3">
-                                <span>
-                                  {collocation.frequency.toLocaleString()}
-                                </span>
-
-                                {hasDistribution && (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setSelectedCollocation((current) =>
-                                        current === collocation.word
-                                          ? null
-                                          : collocation.word,
-                                      )
-                                    }
-                                    className="inline-flex items-center px-3 py-1.5
-                                  text-sm font-medium rounded-md
-                                  border border-slate-300
-                                  hover:bg-slate-100
-                                  focus:outline-none
-                                  focus:ring-2
-                                  focus:ring-slate-400"
-                                  >
-                                    {isSelected
-                                      ? "Close graph"
-                                      : "Distribution"}
-                                  </button>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-
-                          {isSelected && (
-                            <tr>
-                              <td colSpan={2} className="px-6 py-6 bg-slate-50">
-                                <div className="max-w-4xl mx-auto">
-                                  <CollocationDistributionChart
-                                    collocate={collocation.word}
-                                    target={submittedQuery}
-                                    positions={collocation.positions}
-                                    onPositionClick={(position) => {
-                                      setPage(1);
-
-                                      setCollocationFilter({
-                                        word: collocation.word,
-                                        position,
-                                      });
-                                    }}
-                                  />
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* -------------------------------------------------- */}
-        {/* Details Modal                                      */}
-        {/* -------------------------------------------------- */}
-
-        {selectedResult && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4 py-6"
-            role="presentation"
-            onMouseDown={(e: React.MouseEvent<HTMLDivElement>) => {
-              if (e.target === e.currentTarget) {
-                setSelectedResult(null);
-              }
-            }}
-          >
-            <div
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="details-title"
-              className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-xl shadow-2xl"
-            >
-              {/* Modal header */}
-
-              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-                <div>
-                  <h2
-                    id="details-title"
-                    className="text-lg font-semibold text-slate-900"
-                  >
-                    Result Details
-                  </h2>
-
-                  <p className="text-xs text-slate-500 mt-1">
-                    Information about this concordance result
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setSelectedResult(null)}
-                  aria-label="Close details"
-                  className="inline-flex items-center justify-center w-8 h-8 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
-                >
-                  <span aria-hidden="true" className="text-xl leading-none">
-                    ×
-                  </span>
-                </button>
-              </div>
-
-              {/* Modal content */}
-
-              <div className="p-6 space-y-6">
-                {/* Corpus information */}
-
-                <section>
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
-                    Corpus Information
-                  </h3>
-
-                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
-                    <div>
-                      <dt className="text-xs text-slate-400">Transcript</dt>
-                      <dd className="text-sm font-medium text-slate-800 mt-0.5">
-                        {selectedResult.filename}
-                      </dd>
-                    </div>
-
-                    <div>
-                      <dt className="text-xs text-slate-400">Corpus ID</dt>
-                      <dd className="text-sm font-medium text-slate-800 mt-0.5">
-                        {selectedResult.corpus_id}
-                      </dd>
-                    </div>
-
-                    <div>
-                      <dt className="text-xs text-slate-400">Speaker</dt>
-                      <dd className="text-sm font-medium text-slate-800 mt-0.5">
-                        {selectedResult.speaker}
-                      </dd>
-                    </div>
-
-                    <div>
-                      <dt className="text-xs text-slate-400">
-                        Utterance Number
-                      </dt>
-                      <dd className="text-sm font-medium text-slate-800 mt-0.5">
-                        {selectedResult.utterance_number}
-                      </dd>
-                    </div>
-
-                    <div>
-                      <dt className="text-xs text-slate-400">Genre</dt>
-                      <dd className="text-sm font-medium text-slate-800 mt-0.5">
-                        {selectedResult.genre || "—"}
-                      </dd>
-                    </div>
-
-                    <div>
-                      <dt className="text-xs text-slate-400">Transcription</dt>
-                      <dd className="text-sm font-medium text-slate-800 mt-0.5">
-                        {selectedResult.trans || "—"}
-                      </dd>
-                    </div>
-
-                    <div>
-                      <dt className="text-xs text-slate-400">
-                        Speaker Confidence
-                      </dt>
-                      <dd className="text-sm font-medium text-slate-800 mt-0.5">
-                        {selectedResult.who_confidence || "—"}
-                      </dd>
-                    </div>
-
-                    <div>
-                      <dt className="text-xs text-slate-400">Position</dt>
-                      <dd className="text-sm font-medium text-slate-800 mt-0.5">
-                        {selectedResult.position ?? "—"}
-                      </dd>
-                    </div>
-                  </dl>
-                </section>
-
-                {/* Linguistic information */}
-
-                <section>
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
-                    Linguistic Information
-                  </h3>
-
-                  <dl className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    <div className="bg-slate-50 rounded-lg p-3">
-                      <dt className="text-xs text-slate-400">Target</dt>
-                      <dd className="text-sm font-bold text-red-600 mt-1">
-                        {selectedResult.target}
-                      </dd>
-                    </div>
-
-                    <div className="bg-slate-50 rounded-lg p-3">
-                      <dt className="text-xs text-slate-400">Lemma</dt>
-                      <dd className="text-sm font-medium text-slate-800 mt-1">
-                        {selectedResult.lemma || "—"}
-                      </dd>
-                    </div>
-
-                    <div className="bg-slate-50 rounded-lg p-3">
-                      <dt className="text-xs text-slate-400">POS</dt>
-                      <dd className="text-sm font-medium text-slate-800 mt-1">
-                        {selectedResult.pos || "—"}
-                      </dd>
-                    </div>
-
-                    <div className="bg-slate-50 rounded-lg p-3">
-                      <dt className="text-xs text-slate-400">Class</dt>
-                      <dd className="text-sm font-medium text-slate-800 mt-1">
-                        {selectedResult.class || "—"}
-                      </dd>
-                    </div>
-
-                    <div className="bg-slate-50 rounded-lg p-3 col-span-2 sm:col-span-4">
-                      <dt className="text-xs text-slate-400">USAS</dt>
-                      <dd className="text-sm font-medium text-slate-800 mt-1">
-                        {selectedResult.usas || "—"}
-                      </dd>
-                    </div>
-                  </dl>
-                </section>
-
-                {/* Full utterance */}
-
-                <section>
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
-                    Full Utterance
-                  </h3>
-
-                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
-                    <p className="text-sm font-mono text-slate-700 leading-relaxed">
-                      {selectedResult.utterance}
-                    </p>
-                  </div>
-                </section>
-              </div>
-
-              {/* Modal footer */}
-
-              <div className="flex justify-end px-6 py-4 border-t border-slate-200 bg-slate-50 rounded-b-xl">
-                <button
-                  type="button"
-                  onClick={() => setSelectedResult(null)}
-                  className="px-4 py-2 rounded-lg bg-slate-800 text-white text-sm font-medium hover:bg-slate-900 transition-colors"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <ResultDetailsModal
+          selectedResult={selectedResult}
+          setSelectedResult={setSelectedResult}
+        />
       </div>
     </div>
   );
