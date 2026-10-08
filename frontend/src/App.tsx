@@ -11,7 +11,7 @@ import SearchControls from "./components/SearchControls";
 import VocabularyVariants from "./components/VocabularyVariants";
 import ConcordanceTable from "./components/ConcordanceTable";
 import Pagination from "./components/Pagination";
-import ResultDetailsModal from "./components/ResultsDetailsModal";
+import ResultDetailsModal from "./components/ResultDetailsModal";
 import CollocationsPanel from "./components/CollocationsPanel";
 
 export default function App() {
