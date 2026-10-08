@@ -7,13 +7,8 @@ interface CollocationsPanelProps {
   collocations: Collocation[];
   collocationsLoading: boolean;
   collocationsError: string | null;
-  collocationLeft: number;
-  collocationRight: number;
   selectedCollocation: string | null;
-  submittedQuery: string;
-  setCollocationLeft: (value: number) => void;
-  setCollocationRight: (value: number) => void;
-  fetchCollocations: () => void;
+  collocationTarget: string;
   setPage: (page: number) => void;
   setCollocationFilter: (
     filter: { word: string; position: number | null } | null,
@@ -27,13 +22,8 @@ export default function CollocationsPanel({
   collocations,
   collocationsLoading,
   collocationsError,
-  collocationLeft,
-  collocationRight,
   selectedCollocation,
-  submittedQuery,
-  setCollocationLeft,
-  setCollocationRight,
-  fetchCollocations,
+  collocationTarget,
   setPage,
   setCollocationFilter,
   setSelectedCollocation,
@@ -41,7 +31,9 @@ export default function CollocationsPanel({
   return (
     <div className="bg-white border border-slate-200 shadow-sm rounded-xl mb-6">
       <div className="px-6 py-4 border-b border-slate-200">
-        <h2 className="text-lg font-semibold text-slate-800">Collocations</h2>
+        <h2 className="text-lg font-semibold text-slate-800">
+          Collocation Results
+        </h2>
 
         <p className="mt-1 text-sm text-slate-500">
           See how often each collocate occurs within the selected window. Open
@@ -50,71 +42,6 @@ export default function CollocationsPanel({
       </div>
 
       <div className="p-6">
-        <div className="flex flex-wrap items-end gap-4 mb-6">
-          <div>
-            <label
-              htmlFor="collocation-left"
-              className="block mb-2 text-sm font-medium text-slate-700"
-            >
-              Words to left
-            </label>
-
-            <input
-              id="collocation-left"
-              type="number"
-              min="0"
-              max="5"
-              value={collocationLeft}
-              onChange={(e) =>
-                setCollocationLeft(
-                  Math.max(0, Math.min(5, Number(e.target.value))),
-                )
-              }
-              className="w-24 px-3 py-2 border border-slate-300 rounded-lg
-                text-sm focus:outline-none focus:ring-2
-                focus:ring-slate-400"
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="collocation-right"
-              className="block mb-2 text-sm font-medium text-slate-700"
-            >
-              Words to right
-            </label>
-
-            <input
-              id="collocation-right"
-              type="number"
-              min="0"
-              max="5"
-              value={collocationRight}
-              onChange={(e) =>
-                setCollocationRight(
-                  Math.max(0, Math.min(5, Number(e.target.value))),
-                )
-              }
-              className="w-24 px-3 py-2 border border-slate-300 rounded-lg
-                text-sm focus:outline-none focus:ring-2
-                focus:ring-slate-400"
-            />
-          </div>
-
-          <button
-            type="button"
-            onClick={fetchCollocations}
-            disabled={collocationsLoading || !submittedQuery.trim()}
-            className="px-4 py-2 bg-slate-800 text-white rounded-lg
-              text-sm font-medium hover:bg-slate-700
-              disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {collocationsLoading
-              ? "Finding collocations..."
-              : "Find collocations"}
-          </button>
-        </div>
-
         {collocationsError && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
             <p className="text-sm text-red-700">{collocationsError}</p>
@@ -220,7 +147,7 @@ export default function CollocationsPanel({
                             <div className="max-w-4xl mx-auto">
                               <CollocationDistributionChart
                                 collocate={collocation.word}
-                                target={submittedQuery}
+                                target={collocationTarget}
                                 positions={collocation.positions}
                                 onPositionClick={(position) => {
                                   setPage(1);

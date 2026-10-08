@@ -35,6 +35,7 @@ export default function useCorpusSearch() {
   const [collocationsLoading, setCollocationsLoading] =
     useState<boolean>(false);
   const [collocationsError, setCollocationsError] = useState<string>("");
+  const [collocationsSearched, setCollocationsSearched] = useState(false);
 
   const [collocationFilter, setCollocationFilter] = useState<{
     word: string;
@@ -116,9 +117,12 @@ export default function useCorpusSearch() {
   };
 
   const fetchCollocations = async () => {
-    const trimmedQuery = submittedQuery.trim();
+    setCollocationsSearched(true);
+    const collocationQuery =
+      selectedWords.length === 1 ? selectedWords[0] : submittedQuery.trim();
 
-    if (!trimmedQuery) {
+    if (!collocationQuery) {
+      setCollocationsSearched(false);
       setCollocations([]);
       return;
     }
@@ -131,7 +135,7 @@ export default function useCorpusSearch() {
     try {
       const params = new URLSearchParams();
 
-      params.set("query", trimmedQuery);
+      params.set("query", collocationQuery);
       params.set("left", String(collocationLeft));
       params.set("right", String(collocationRight));
 
@@ -169,7 +173,10 @@ export default function useCorpusSearch() {
     try {
       const params = new URLSearchParams();
 
-      params.set("target", submittedQuery);
+      const collocationTarget =
+        selectedWords.length === 1 ? selectedWords[0] : submittedQuery.trim();
+
+      params.set("target", collocationTarget);
       params.set("collocate", collocate);
       params.set("left", String(collocationLeft));
       params.set("right", String(collocationRight));
@@ -213,6 +220,9 @@ export default function useCorpusSearch() {
       setTotalMatches(0);
       setUniqueWords([]);
       setSelectedWords([]);
+      setCollocations([]);
+      setCollocationsSearched(false);
+      setCollocationsError("");
       setCollocationFilter(null);
       setPage(1);
       setError("");
@@ -221,6 +231,10 @@ export default function useCorpusSearch() {
 
     setPage(1);
     setSelectedWords([]);
+    setCollocations([]);
+    setCollocationsSearched(false);
+    setCollocationsError("");
+    setSelectedCollocation(null);
     setCollocationFilter(null);
     setSubmittedSearchType(searchType);
     setSubmittedQuery(trimmedQuery);
@@ -287,6 +301,16 @@ export default function useCorpusSearch() {
 
   const totalPages = Math.ceil(totalMatches / limit) || 1;
 
+  const isWildcardSearch =
+    submittedSearchType === "word" && submittedQuery.includes("*");
+
+  const canRunCollocations = !isWildcardSearch || selectedWords.length === 1;
+
+  const collocationMessage =
+    isWildcardSearch && selectedWords.length !== 1
+      ? "Choose a single variant to look at collocations."
+      : undefined;
+
   return {
     searchType,
     setSearchType,
@@ -314,6 +338,10 @@ export default function useCorpusSearch() {
     collocations,
     collocationsLoading,
     collocationsError,
+    collocationsSearched,
+    isWildcardSearch,
+    canRunCollocations,
+    collocationMessage,
     selectedCollocation,
     setSelectedCollocation,
     collocationFilter,
