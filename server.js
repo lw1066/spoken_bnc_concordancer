@@ -292,14 +292,14 @@ app.get("/api/search", (req, res) => {
         uniqueWords = db
           .prepare(
             `
-        SELECT
-          w.word,
-          COUNT(*) AS count
-        FROM words w
-        WHERE ${conditions.join(" AND ")}
-        GROUP BY w.word
-        ORDER BY count DESC, w.word COLLATE NOCASE ASC
-        `,
+          SELECT
+            LOWER(w.word) AS word,
+            COUNT(*) AS count
+          FROM words w
+          WHERE ${conditions.join(" AND ")}
+          GROUP BY LOWER(w.word)
+          ORDER BY count DESC, word ASC
+          `,
           )
           .all(...params)
           .map((row) => ({
@@ -323,7 +323,15 @@ app.get("/api/search", (req, res) => {
           `LOWER(w.word) IN (${placeholders})`,
         ];
 
-        resultParams = [...params, ...selectedWords];
+        resultConditions = [
+          ...conditions,
+          `LOWER(w.word) IN (${placeholders})`,
+        ];
+
+        resultParams = [
+          ...params,
+          ...selectedWords.map((word) => word.toLowerCase()),
+        ];
       } else {
         resultConditions = [...conditions];
         resultParams = [...params];
@@ -776,7 +784,13 @@ app.get("/api/search", (req, res) => {
 });
 
 app.get("/api/collocations", (req, res) => {
-  const { query, left = 3, right = 3, limit = 100 } = req.query;
+  const {
+    query,
+    left = 3,
+    right = 3,
+    min_frequency = 5,
+    limit = 100,
+  } = req.query;
 
   console.log("COLLOCATION QUERY:", query);
   console.log("LEFT WINDOW:", left);
@@ -831,6 +845,22 @@ app.get("/api/collocations", (req, res) => {
     ) {
       return res.status(400).json({
         error: "Limit must be a whole number between 1 and 1000.",
+      });
+    }
+
+    // -------------------------------------------------------
+    // Validate minimum frequency
+    // -------------------------------------------------------
+
+    const minFrequency = Number(min_frequency);
+
+    if (
+      !Number.isInteger(minFrequency) ||
+      minFrequency < 1 ||
+      minFrequency > 1000
+    ) {
+      return res.status(400).json({
+        error: "Minimum frequency must be a whole number between 1 and 1000.",
       });
     }
 
@@ -921,6 +951,8 @@ app.get("/api/collocations", (req, res) => {
 
       GROUP BY LOWER(collocate.word)
 
+      HAVING COUNT(*) >= ?
+
       ORDER BY
         frequency DESC,
         word ASC
@@ -928,7 +960,13 @@ app.get("/api/collocations", (req, res) => {
       LIMIT ?
     `;
 
-    const params = [leftWindow, rightWindow, ...wordSearch.params, resultLimit];
+    const params = [
+      leftWindow,
+      rightWindow,
+      ...wordSearch.params,
+      minFrequency,
+      resultLimit,
+    ];
 
     // -------------------------------------------------------
     // Execute query
@@ -968,6 +1006,7 @@ app.get("/api/collocations", (req, res) => {
       query: cleanQuery,
       left_window: leftWindow,
       right_window: rightWindow,
+      min_frequency: minFrequency,
       collocations,
     });
   } catch (error) {
