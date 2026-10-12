@@ -9,6 +9,7 @@ import ConcordanceTable from "./components/ConcordanceTable";
 import Pagination from "./components/Pagination";
 import ResultDetailsModal from "./components/ResultDetailsModal";
 import CollocationsPanel from "./components/CollocationsPanel";
+import ResultsToolbar from "./components/resultsToolbar";
 
 export default function App() {
   const [selectedResult, setSelectedResult] = useState<KwicResult | null>(null);
@@ -33,9 +34,9 @@ export default function App() {
     loading,
     error,
     collocationLeft,
-    setCollocationLeft,
+    updateCollocationLeft,
     collocationRight,
-    setCollocationRight,
+    updateCollocationRight,
     collocations,
     collocationsSearched,
     canRunCollocations,
@@ -44,11 +45,16 @@ export default function App() {
     collocationsError,
     selectedCollocation,
     setSelectedCollocation,
-    setCollocationFilter,
+    updateCollocationFilter,
     fetchCollocations,
     handleSearch,
     totalPages,
     toggleWordSelection,
+    minCollocationFrequency,
+    updateMinCollocationFrequency,
+    collocationFilter,
+    displayedTotalMatches,
+    originalTotalMatches,
   } = useCorpusSearch();
 
   useEffect(() => {
@@ -76,7 +82,7 @@ export default function App() {
 
   const searchPlaceholder =
     searchType === "word"
-      ? "e.g. honestly, bloody*, *ing"
+      ? "e.g. honest, run*, *ing"
       : searchType === "lemma"
         ? "e.g. game, run, be"
         : "e.g. NN1, NN2, VV0, JJ";
@@ -87,6 +93,21 @@ export default function App() {
       : searchType === "lemma"
         ? "Search Lemma"
         : "Search POS Tag";
+
+  const collocationTarget =
+    selectedWords.length === 1 ? selectedWords[0] : submittedQuery;
+
+  const resultsHeading = collocationFilter
+    ? `Results for "${collocationTarget}" + "${collocationFilter.word}"${
+        collocationFilter.position === null
+          ? ""
+          : collocationFilter.position < 0
+            ? ` (${Math.abs(collocationFilter.position)} words left)`
+            : ` (${collocationFilter.position} words right)`
+      }`
+    : selectedWords.length > 0
+      ? `Results for ${selectedWords.map((word) => `"${word}"`).join(", ")}`
+      : `Results for "${submittedQuery}"`;
 
   return (
     <div className="min-h-screen bg-slate-50 py-8 px-4 sm:px-6 lg:px-8 font-sans antialiased">
@@ -106,36 +127,49 @@ export default function App() {
         <section className="mb-8">
           <div className="mb-4">
             <h2 className="text-lg font-semibold text-slate-900">Search</h2>
-
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="mt-1 text-xs text-slate-500">
               Search the corpus and configure collocation analysis.
             </p>
           </div>
 
-          <SearchControls
-            searchType={searchType}
-            query={query}
-            pendingWindowSize={pendingWindowSize}
-            limit={limit}
-            loading={loading}
-            searchLabel={searchLabel}
-            searchPlaceholder={searchPlaceholder}
-            onSearchTypeChange={setSearchType}
-            onQueryChange={setQuery}
-            onWindowSizeChange={setPendingWindowSize}
-            onLimitChange={setLimit}
-            onSearch={handleSearch}
-          />
-
-          {searchType !== "word" && (
-            <div className="bg-blue-50 border border-blue-100 px-4 py-3 rounded-lg mt-4">
-              <p className="text-xs text-blue-800">
-                {searchType === "lemma"
-                  ? "Lemma search finds all word forms sharing the specified lemma."
-                  : "POS search finds tokens with the specified BNC grammatical tag."}
-              </p>
+          <div className="flex flex-col items-start gap-4 xl:flex-row">
+            {/* Search controls */}
+            <div className="w-fit max-w-full">
+              <SearchControls
+                searchType={searchType}
+                query={query}
+                submittedQuery={submittedQuery}
+                submittedSearchType={submittedSearchType}
+                concordanceCount={originalTotalMatches}
+                loading={loading}
+                searchLabel={searchLabel}
+                searchPlaceholder={searchPlaceholder}
+                onSearchTypeChange={setSearchType}
+                onQueryChange={setQuery}
+                onSearch={handleSearch}
+              />
             </div>
-          )}
+
+            {/* Collocation controls */}
+            {submittedQuery.trim() !== "" && (
+              <div className="w-fit max-w-full ">
+                <CollocationControls
+                  collocationLeft={collocationLeft}
+                  collocationRight={collocationRight}
+                  setCollocationLeft={updateCollocationLeft}
+                  setCollocationRight={updateCollocationRight}
+                  fetchCollocations={fetchCollocations}
+                  loading={collocationsLoading}
+                  canRunCollocations={canRunCollocations}
+                  collocationMessage={collocationMessage}
+                  minCollocationFrequency={minCollocationFrequency}
+                  setMinCollocationFrequency={updateMinCollocationFrequency}
+                  collocationsSearched={collocationsSearched}
+                  collocationCount={collocations.length}
+                />
+              </div>
+            )}
+          </div>
         </section>
 
         <VocabularyVariants
@@ -152,56 +186,72 @@ export default function App() {
             </div>
           )}
 
-          {totalMatches > 0 && (
-            <>
-              <CollocationControls
-                collocationLeft={collocationLeft}
-                collocationRight={collocationRight}
-                setCollocationLeft={setCollocationLeft}
-                setCollocationRight={setCollocationRight}
-                fetchCollocations={fetchCollocations}
-                loading={collocationsLoading}
-                canRunCollocations={canRunCollocations}
-                collocationMessage={collocationMessage}
-              />
-              {collocationsSearched && (
-                <CollocationsPanel
-                  collocations={collocations}
-                  collocationsLoading={collocationsLoading}
-                  collocationsError={collocationsError}
-                  selectedCollocation={selectedCollocation}
-                  collocationTarget={
-                    selectedWords.length === 1
-                      ? selectedWords[0]
-                      : submittedQuery
-                  }
-                  setPage={setPage}
-                  setCollocationFilter={setCollocationFilter}
-                  setSelectedCollocation={setSelectedCollocation}
-                />
-              )}
-            </>
+          {collocationsSearched && (
+            <CollocationsPanel
+              collocations={collocations}
+              collocationsLoading={collocationsLoading}
+              collocationsError={collocationsError}
+              selectedCollocation={selectedCollocation}
+              collocationTarget={
+                selectedWords.length === 1 ? selectedWords[0] : submittedQuery
+              }
+              setPage={setPage}
+              updateCollocationFilter={updateCollocationFilter}
+              setSelectedCollocation={setSelectedCollocation}
+              activeCollocate={collocationFilter?.word ?? null}
+              activePosition={collocationFilter?.position ?? null}
+            />
           )}
 
-          <div className="mt-8">
-            <h3 className="mb-4 text-sm font-semibold text-slate-700">
-              {loading
-                ? " Fetching concordances"
-                : ` Results: showing ${totalMatches.toLocaleString()} concordances`}
-            </h3>
+          {submittedQuery.trim() !== "" && (
+            <div className="mt-8 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+              {/* Results header and display controls */}
+              <div className="flex flex-col gap-4 border-b border-slate-200 p-4 xl:flex-row xl:items-center xl:justify-between">
+                <h3 className="shrink-0 text-sm font-semibold text-slate-700">
+                  {loading ? (
+                    "Fetching concordances..."
+                  ) : (
+                    <>
+                      <span className="text-slate-950">{resultsHeading}</span>
+                      {" — "}
+                      {displayedTotalMatches.toLocaleString()}{" "}
+                      {displayedTotalMatches === 1
+                        ? "occurrence"
+                        : "occurrences"}
+                    </>
+                  )}
+                </h3>
+                {!loading && totalMatches > 0 && (
+                  <div className="min-w-0 xl:w-auto xl:flex-none">
+                    <ResultsToolbar
+                      pendingWindowSize={pendingWindowSize}
+                      limit={limit}
+                      onWindowSizeChange={setPendingWindowSize}
+                      onLimitChange={setLimit}
+                    />
+                  </div>
+                )}
+              </div>
 
-            <ConcordanceTable
-              results={results}
-              loading={loading}
-              setSelectedResult={setSelectedResult}
-            />
-          </div>
+              {/* Concordance results */}
+              <div className="p-4">
+                <ConcordanceTable
+                  results={results}
+                  loading={loading}
+                  setSelectedResult={setSelectedResult}
+                />
+              </div>
 
-          <Pagination
-            page={page}
-            totalPages={totalPages}
-            onPageChange={setPage}
-          />
+              {/* Pagination */}
+              <div className="border-t border-slate-200 px-4 py-3">
+                <Pagination
+                  page={page}
+                  totalPages={totalPages}
+                  onPageChange={setPage}
+                />
+              </div>
+            </div>
+          )}
         </section>
 
         <ResultDetailsModal

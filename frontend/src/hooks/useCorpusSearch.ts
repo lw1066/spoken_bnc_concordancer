@@ -13,8 +13,8 @@ export default function useCorpusSearch() {
   const [submittedSearchType, setSubmittedSearchType] =
     useState<SearchType>("word");
 
-  const [query, setQuery] = useState<string>("honestly");
-  const [submittedQuery, setSubmittedQuery] = useState<string>("honestly");
+  const [query, setQuery] = useState<string>("");
+  const [submittedQuery, setSubmittedQuery] = useState<string>("");
 
   const [windowSize, setWindowSize] = useState<number>(5);
   const [pendingWindowSize, setPendingWindowSize] = useState<number>(5);
@@ -22,6 +22,7 @@ export default function useCorpusSearch() {
   const [page, setPage] = useState<number>(1);
 
   const [totalMatches, setTotalMatches] = useState<number>(0);
+  const [originalTotalMatches, setOriginalTotalMatches] = useState(0);
   const [uniqueWords, setUniqueWords] = useState<UniqueWord[]>([]);
   const [selectedWords, setSelectedWords] = useState<string[]>([]);
   const [results, setResults] = useState<KwicResult[]>([]);
@@ -29,6 +30,7 @@ export default function useCorpusSearch() {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
 
+  const [minCollocationFrequency, setMinCollocationFrequency] = useState(5);
   const [collocationLeft, setCollocationLeft] = useState<number>(3);
   const [collocationRight, setCollocationRight] = useState<number>(3);
   const [collocations, setCollocations] = useState<Collocation[]>([]);
@@ -36,6 +38,7 @@ export default function useCorpusSearch() {
     useState<boolean>(false);
   const [collocationsError, setCollocationsError] = useState<string>("");
   const [collocationsSearched, setCollocationsSearched] = useState(false);
+  const [collocationTotalMatches, setCollocationTotalMatches] = useState(0);
 
   const [collocationFilter, setCollocationFilter] = useState<{
     word: string;
@@ -100,6 +103,7 @@ export default function useCorpusSearch() {
         setTotalMatches(data.total_matches);
 
         if (selectedWords.length === 0) {
+          setOriginalTotalMatches(data.total_matches);
           setUniqueWords(data.unique_words);
         }
       } else {
@@ -138,6 +142,7 @@ export default function useCorpusSearch() {
       params.set("query", collocationQuery);
       params.set("left", String(collocationLeft));
       params.set("right", String(collocationRight));
+      params.set("min_frequency", String(minCollocationFrequency));
 
       const response = await fetch(
         `http://localhost:8000/api/collocations?${params.toString()}`,
@@ -198,7 +203,7 @@ export default function useCorpusSearch() {
       const data = await response.json();
 
       setResults(data.results || []);
-      setTotalMatches(data.total_matches || 0);
+      setCollocationTotalMatches(data.total_matches || 0);
     } catch (err) {
       console.error("Collocation concordance error:", err);
 
@@ -236,6 +241,7 @@ export default function useCorpusSearch() {
     setCollocationsError("");
     setSelectedCollocation(null);
     setCollocationFilter(null);
+    setOriginalTotalMatches(0);
     setSubmittedSearchType(searchType);
     setSubmittedQuery(trimmedQuery);
   };
@@ -274,8 +280,18 @@ export default function useCorpusSearch() {
     return () => clearTimeout(timeout);
   }, [pendingWindowSize]);
 
-  const toggleWordSelection = (word: string) => {
+  const resetCollocationState = () => {
+    setCollocations([]);
+    setCollocationsSearched(false);
+    setCollocationFilter(null);
+    setSelectedCollocation(null);
+    setCollocationTotalMatches(0);
+    setCollocationsError("");
     setPage(1);
+  };
+
+  const toggleWordSelection = (word: string) => {
+    resetCollocationState();
 
     setSelectedWords((current) => {
       if (current.includes(word)) {
@@ -287,7 +303,7 @@ export default function useCorpusSearch() {
   };
 
   const removeSelectedWord = (word: string) => {
-    setPage(1);
+    resetCollocationState();
 
     setSelectedWords((current) =>
       current.filter((selected) => selected !== word),
@@ -295,21 +311,67 @@ export default function useCorpusSearch() {
   };
 
   const clearSelectedWords = () => {
-    setPage(1);
+    resetCollocationState();
     setSelectedWords([]);
   };
 
-  const totalPages = Math.ceil(totalMatches / limit) || 1;
+  const updateCollocationLeft = (value: number) => {
+    setCollocationLeft(value);
+    setCollocationsSearched(false);
+    setCollocationFilter(null);
+    setSelectedCollocation(null);
+    setPage(1);
+  };
+
+  const updateCollocationRight = (value: number) => {
+    setCollocationRight(value);
+    setCollocationsSearched(false);
+    setCollocationFilter(null);
+    setSelectedCollocation(null);
+    setPage(1);
+  };
+
+  const updateMinCollocationFrequency = (value: number) => {
+    setMinCollocationFrequency(value);
+    setCollocationsSearched(false);
+    setCollocationFilter(null);
+    setSelectedCollocation(null);
+    setPage(1);
+  };
+
+  const updateCollocationFilter = (
+    filter: { word: string; position: number | null } | null,
+  ) => {
+    setPage(1);
+    setCollocationFilter(filter);
+
+    if (!filter) {
+      setCollocationTotalMatches(0);
+    }
+  };
+
+  const displayedTotalMatches = collocationFilter
+    ? collocationTotalMatches
+    : totalMatches;
+
+  const totalPages = Math.ceil(displayedTotalMatches / limit) || 1;
 
   const isWildcardSearch =
     submittedSearchType === "word" && submittedQuery.includes("*");
 
-  const canRunCollocations = !isWildcardSearch || selectedWords.length === 1;
+  const canRunCollocations =
+    selectedWords.length === 1 ||
+    (submittedSearchType === "word" &&
+      !isWildcardSearch &&
+      submittedQuery.trim() !== "" &&
+      selectedWords.length === 0);
 
   const collocationMessage =
-    isWildcardSearch && selectedWords.length !== 1
+    submittedSearchType === "lemma" && selectedWords.length !== 1
       ? "Choose a single variant to look at collocations."
-      : undefined;
+      : isWildcardSearch && selectedWords.length !== 1
+        ? "Choose a single variant to look at collocations."
+        : undefined;
 
   return {
     searchType,
@@ -326,15 +388,16 @@ export default function useCorpusSearch() {
     page,
     setPage,
     totalMatches,
+    originalTotalMatches,
     uniqueWords,
     selectedWords,
     results,
     loading,
     error,
     collocationLeft,
-    setCollocationLeft,
+    updateCollocationLeft,
     collocationRight,
-    setCollocationRight,
+    updateCollocationRight,
     collocations,
     collocationsLoading,
     collocationsError,
@@ -345,12 +408,15 @@ export default function useCorpusSearch() {
     selectedCollocation,
     setSelectedCollocation,
     collocationFilter,
-    setCollocationFilter,
+    updateCollocationFilter,
     fetchCollocations,
     handleSearch,
     totalPages,
+    displayedTotalMatches,
     toggleWordSelection,
     removeSelectedWord,
     clearSelectedWords,
+    minCollocationFrequency,
+    updateMinCollocationFrequency,
   };
 }

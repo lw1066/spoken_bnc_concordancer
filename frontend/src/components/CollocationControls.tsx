@@ -7,6 +7,10 @@ interface CollocationControlsProps {
   loading: boolean;
   canRunCollocations: boolean;
   collocationMessage?: string;
+  minCollocationFrequency: number;
+  setMinCollocationFrequency: (value: number) => void;
+  collocationsSearched: boolean;
+  collocationCount: number;
 }
 
 export default function CollocationControls({
@@ -18,90 +22,118 @@ export default function CollocationControls({
   loading,
   canRunCollocations,
   collocationMessage,
+  minCollocationFrequency,
+  setMinCollocationFrequency,
+  collocationsSearched,
+  collocationCount,
 }: CollocationControlsProps) {
   return (
-    <div className="mt-4 bg-white border border-slate-200 shadow-sm rounded-xl">
-      <div className="px-6 py-4 border-b border-slate-200">
-        <h3 className="text-sm font-semibold text-slate-800">
-          Collocation Analysis
-        </h3>
+    <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      {/* Heading */}
+      <div className="mb-3">
+        <h3 className="text-sm font-semibold text-slate-800">Collocations</h3>
 
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1 text-xs leading-relaxed text-slate-500">
           {canRunCollocations
-            ? "Configure how many words to examine on either side of the search term."
+            ? "Choose how many words to examine on either side of target search term."
             : collocationMessage}
         </p>
       </div>
 
-      <div className="p-6">
-        <div className="flex flex-wrap items-end gap-4">
-          <div>
-            <label
-              htmlFor="collocation-left"
-              className="block mb-2 text-sm font-medium text-slate-700"
-            >
-              Words to left
-            </label>
-
-            <input
-              id="collocation-left"
-              type="number"
-              min="0"
-              max="5"
-              value={collocationLeft}
-              disabled={!canRunCollocations}
-              onChange={(e) =>
-                setCollocationLeft(
-                  Math.max(0, Math.min(5, Number(e.target.value))),
-                )
-              }
-              className="w-24 px-3 py-2 border border-slate-300 rounded-lg
-                text-sm focus:outline-none focus:ring-2
-                focus:ring-slate-400
-                disabled:bg-slate-100 disabled:text-slate-400
-                disabled:cursor-not-allowed"
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="collocation-right"
-              className="block mb-2 text-sm font-medium text-slate-700"
-            >
-              Words to right
-            </label>
-
-            <input
-              id="collocation-right"
-              type="number"
-              min="0"
-              max="5"
-              value={collocationRight}
-              disabled={!canRunCollocations}
-              onChange={(e) =>
-                setCollocationRight(
-                  Math.max(0, Math.min(5, Number(e.target.value))),
-                )
-              }
-              className="w-24 px-3 py-2 border border-slate-300 rounded-lg
-                text-sm focus:outline-none focus:ring-2
-                focus:ring-slate-400
-                disabled:bg-slate-100 disabled:text-slate-400
-                disabled:cursor-not-allowed"
-            />
-          </div>
-
-          <button
-            type="button"
-            onClick={fetchCollocations}
-            disabled={loading || !canRunCollocations}
-            className="px-4 py-2 bg-slate-800 text-white rounded-lg
-              text-sm font-medium hover:bg-slate-700
-              disabled:opacity-50 disabled:cursor-not-allowed"
+      {/* Controls */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-0 flex-1">
+          <label
+            htmlFor="collocation-left"
+            className="mb-2 block text-sm font-medium text-slate-700"
           >
-            {loading ? "Finding collocations..." : "Find collocations"}
-          </button>
+            Left
+          </label>
+
+          <input
+            id="collocation-left"
+            type="number"
+            min={0}
+            max={5}
+            value={collocationLeft}
+            disabled={!canRunCollocations}
+            onChange={(e) =>
+              setCollocationLeft(
+                Math.max(0, Math.min(5, Number(e.target.value))),
+              )
+            }
+            className="h-10 w-full min-w-0 rounded-lg border border-slate-300 px-3 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+          />
         </div>
+        <div className="min-w-0 flex-1">
+          <label
+            htmlFor="collocation-right"
+            className="mb-2 block text-sm font-medium text-slate-700"
+          >
+            Right
+          </label>
+
+          <input
+            id="collocation-right"
+            type="number"
+            min={0}
+            max={5}
+            value={collocationRight}
+            disabled={!canRunCollocations}
+            onChange={(e) =>
+              setCollocationRight(
+                Math.max(0, Math.min(5, Number(e.target.value))),
+              )
+            }
+            className="h-10 w-full min-w-0 rounded-lg border border-slate-300 px-3 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+          />
+        </div>
+        <div className="min-w-0 flex-2">
+          <label
+            htmlFor="min-collocation-frequency"
+            className="mb-2 block text-sm font-medium text-slate-700"
+          >
+            Min frequency
+          </label>
+
+          <select
+            id="min-collocation-frequency"
+            value={minCollocationFrequency}
+            onChange={(event) =>
+              setMinCollocationFrequency(Number(event.target.value))
+            }
+            disabled={!canRunCollocations || loading}
+            className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm
+      focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200
+      disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+          >
+            <option value={3}>3 or more</option>
+            <option value={5}>5 or more</option>
+            <option value={10}>10 or more</option>
+            <option value={20}>20 or more</option>
+            <option value={50}>50 or more</option>
+            <option value={100}>100 or more</option>
+          </select>
+        </div>
+
+        <button
+          type="button"
+          onClick={fetchCollocations}
+          disabled={loading || !canRunCollocations}
+          className={`h-10 ml-8 w-full rounded-lg px-4 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto ${
+            loading
+              ? "bg-slate-400 hover:bg-slate-400"
+              : collocationsSearched
+                ? "bg-blue-600"
+                : "bg-green-600 hover:bg-green-700"
+          }`}
+        >
+          {loading
+            ? "Searching..."
+            : collocationsSearched
+              ? `${collocationCount} collocations`
+              : "Find collocations"}
+        </button>
       </div>
     </div>
   );

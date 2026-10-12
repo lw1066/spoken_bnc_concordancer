@@ -1,26 +1,96 @@
+import { useState } from "react";
+
 import {
   Bar,
   BarChart,
   CartesianGrid,
+  Rectangle,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
 
+import type { RectangleProps } from "recharts";
+
 type CollocationDistributionChartProps = {
   collocate: string;
   target: string;
   positions: Record<string, number>;
+  activePosition: number | null;
   onPositionClick?: (position: number) => void;
 };
+
+type ChartDatum = {
+  position: string;
+  numericPosition: number;
+  frequency: number;
+};
+
+type CustomBarShapeProps = RectangleProps & {
+  payload?: ChartDatum;
+  activePosition: number | null;
+  hoveredPosition: number | null;
+  setHoveredPosition: (position: number | null) => void;
+  onPositionClick?: (position: number) => void;
+};
+
+function CustomBarShape({
+  x,
+  y,
+  width,
+  height,
+  payload,
+  activePosition,
+  hoveredPosition,
+  setHoveredPosition,
+  onPositionClick,
+}: CustomBarShapeProps) {
+  if (x == null || y == null || width == null || height == null || !payload) {
+    return null;
+  }
+
+  const position = payload.numericPosition;
+  const isActive = activePosition === position;
+  const isHovered = hoveredPosition === position;
+
+  return (
+    <Rectangle
+      x={x}
+      y={y}
+      width={width}
+      height={height}
+      radius={[4, 4, 0, 0]}
+      fill={isActive || isHovered ? "#2563eb" : "#94a3b8"}
+      style={{
+        cursor: "pointer",
+        transition: "fill 0.2s ease",
+      }}
+      tabIndex={0}
+      role="button"
+      aria-label={`Position ${payload.position}, frequency ${payload.frequency}`}
+      onMouseEnter={() => setHoveredPosition(position)}
+      onMouseLeave={() => setHoveredPosition(null)}
+      onClick={() => onPositionClick?.(position)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onPositionClick?.(position);
+        }
+      }}
+    />
+  );
+}
 
 export default function CollocationDistributionChart({
   collocate,
   target,
   positions,
+  activePosition,
   onPositionClick,
 }: CollocationDistributionChartProps) {
+  const [hoveredPosition, setHoveredPosition] = useState<number | null>(null);
+
   const positionNumbers = Object.keys(positions).map(Number);
 
   const leftWindow = Math.max(
@@ -32,11 +102,13 @@ export default function CollocationDistributionChart({
     0,
     ...positionNumbers.filter((position) => position > 0),
   );
-  const chartData = [
+
+  const chartData: ChartDatum[] = [
     ...Array.from({ length: leftWindow }, (_, index) => -(leftWindow - index)),
     ...Array.from({ length: rightWindow }, (_, index) => index + 1),
   ].map((position) => ({
     position: position > 0 ? `+${position}` : String(position),
+    numericPosition: position,
     frequency: positions[String(position)] || 0,
   }));
 
@@ -104,23 +176,15 @@ export default function CollocationDistributionChart({
             <Bar
               dataKey="frequency"
               name="Frequency"
-              radius={[4, 4, 0, 0]}
-              onClick={(_, index) => {
-                if (!onPositionClick) return;
-
-                const position = chartData[index];
-
-                if (!position) return;
-
-                const numericPosition = position.position.startsWith("+")
-                  ? Number(position.position.slice(1))
-                  : Number(position.position);
-
-                if (!Number.isNaN(numericPosition) && numericPosition !== 0) {
-                  onPositionClick(numericPosition);
-                }
-              }}
-              cursor="pointer"
+              shape={(props) => (
+                <CustomBarShape
+                  {...props}
+                  activePosition={activePosition}
+                  hoveredPosition={hoveredPosition}
+                  setHoveredPosition={setHoveredPosition}
+                  onPositionClick={onPositionClick}
+                />
+              )}
             />
           </BarChart>
         </ResponsiveContainer>
