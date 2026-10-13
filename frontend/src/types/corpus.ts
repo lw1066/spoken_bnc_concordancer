@@ -1,4 +1,4 @@
-export type SearchType = "word" | "lemma" | "pos";
+export type SearchType = "word" | "lemma";
 
 export type Collocation = {
   word: string;
@@ -7,7 +7,7 @@ export type Collocation = {
 };
 
 export interface KwicResult {
-  id: number;
+  id: string | number;
   text_id: number;
   corpus_id: string;
   filename: string;
@@ -30,6 +30,14 @@ export interface KwicResult {
 export interface UniqueWord {
   word: string;
   count: number;
+  pos: string | null;
+  wordClass: string | null;
+}
+
+export interface SelectedVariant {
+  word: string;
+  pos: string | null;
+  wordClass: string | null;
 }
 
 export interface ApiResponse {
