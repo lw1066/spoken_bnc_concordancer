@@ -207,15 +207,29 @@ function buildWordSearch(query) {
 /**
  * Parse selected vocabulary variants from filter_words.
  */
+
 function getSelectedWords(filterWords) {
   if (!filterWords) {
     return [];
   }
 
-  return String(filterWords)
-    .split(",")
-    .map((word) => word.trim())
-    .filter(Boolean);
+  try {
+    const parsed = JSON.parse(String(filterWords));
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.filter(
+      (variant) =>
+        variant &&
+        typeof variant.word === "string" &&
+        (typeof variant.pos === "string" || variant.pos === null) &&
+        (typeof variant.wordClass === "string" || variant.wordClass === null),
+    );
+  } catch {
+    return [];
+  }
 }
 
 app.get("/", (req, res) => {
@@ -292,18 +306,22 @@ app.get("/api/search", (req, res) => {
         uniqueWords = db
           .prepare(
             `
-          SELECT
-            LOWER(w.word) AS word,
-            COUNT(*) AS count
-          FROM words w
-          WHERE ${conditions.join(" AND ")}
-          GROUP BY LOWER(w.word)
-          ORDER BY count DESC, word ASC
-          `,
+      SELECT
+        LOWER(w.word) AS word,
+        w.pos AS pos,
+        w.class AS wordClass,
+        COUNT(*) AS count
+      FROM words w
+      WHERE ${conditions.join(" AND ")}
+      GROUP BY LOWER(w.word), w.pos, w.class
+      ORDER BY count DESC, word ASC
+      `,
           )
           .all(...params)
           .map((row) => ({
             word: row.word,
+            pos: row.pos,
+            wordClass: row.wordClass,
             count: row.count,
           }));
       }
@@ -316,22 +334,24 @@ app.get("/api/search", (req, res) => {
       let resultParams;
 
       if (selectedWords.length > 0) {
-        const placeholders = selectedWords.map(() => "?").join(",");
+        const variantConditions = selectedWords.map(() => {
+          return `(LOWER(w.word) = LOWER(?) AND (
+            w.pos = ? OR (w.pos IS NULL AND ? IS NULL)
+          ))`;
+        });
 
         resultConditions = [
           ...conditions,
-          `LOWER(w.word) IN (${placeholders})`,
+          `(${variantConditions.join(" OR ")})`,
         ];
 
-        resultConditions = [
-          ...conditions,
-          `LOWER(w.word) IN (${placeholders})`,
-        ];
+        const variantParams = selectedWords.flatMap((variant) => [
+          variant.word,
+          variant.pos,
+          variant.pos,
+        ]);
 
-        resultParams = [
-          ...params,
-          ...selectedWords.map((word) => word.toLowerCase()),
-        ];
+        resultParams = [...params, ...variantParams];
       } else {
         resultConditions = [...conditions];
         resultParams = [...params];
@@ -464,7 +484,7 @@ app.get("/api/search", (req, res) => {
           const context = buildTokenContext(tokens, targetIndex, window);
 
           paginatedResults.push({
-            id: utterance.id,
+            id: `${utterance.id}-${match.position}`,
             text_id: utterance.text_id,
             corpus_id: utterance.corpus_id,
             filename: utterance.filename,
@@ -545,18 +565,22 @@ app.get("/api/search", (req, res) => {
       uniqueWords = db
         .prepare(
           `
-      SELECT
-        w.word,
-        COUNT(*) AS count
-      FROM words w
-      WHERE ${wordSearch.sql}
-      GROUP BY w.word
-      ORDER BY count DESC, w.word COLLATE NOCASE ASC
+    SELECT
+      LOWER(w.word) AS word,
+      w.pos AS pos,
+      w.class AS wordClass,
+      COUNT(*) AS count
+    FROM words w
+    WHERE ${wordSearch.sql}
+    GROUP BY LOWER(w.word), w.pos, w.class
+    ORDER BY count DESC, word ASC
     `,
         )
         .all(...wordSearch.params)
         .map((row) => ({
           word: row.word,
+          pos: row.pos,
+          wordClass: row.wordClass,
           count: row.count,
         }));
       console.log("Vocabulary variants:", Date.now() - variantsStart, "ms");
@@ -577,16 +601,24 @@ app.get("/api/search", (req, res) => {
     let resultParams;
 
     if (selectedWords.length > 0) {
-      // Once a vocabulary variant is selected,
-      // search directly for that exact word.
-      const placeholders = selectedWords.map(() => "?").join(",");
+      const variantConditions = selectedWords.map(
+        () => `(
+      LOWER(w.word) = LOWER(?)
+      AND (w.pos = ? OR (w.pos IS NULL AND ? IS NULL))
+      AND (w.class = ? OR (w.class IS NULL AND ? IS NULL))
+    )`,
+      );
 
-      resultConditions = [`w.word IN (${placeholders})`];
+      resultConditions = [`(${variantConditions.join(" OR ")})`];
 
-      resultParams = selectedWords;
+      resultParams = selectedWords.flatMap((variant) => [
+        variant.word,
+        variant.pos,
+        variant.pos,
+        variant.wordClass,
+        variant.wordClass,
+      ]);
     } else {
-      // No variant selected, so use the original
-      // word/wildcard search.
       resultConditions = [wordSearch.sql];
       resultParams = [...wordSearch.params];
     }
@@ -739,7 +771,7 @@ app.get("/api/search", (req, res) => {
         const context = buildTokenContext(tokens, targetIndex, window);
 
         paginatedResults.push({
-          id: utterance.id,
+          id: `${utterance.id}-${match.position}`,
           text_id: utterance.text_id,
           corpus_id: utterance.corpus_id,
           filename: utterance.filename,
@@ -786,6 +818,8 @@ app.get("/api/search", (req, res) => {
 app.get("/api/collocations", (req, res) => {
   const {
     query,
+    pos,
+    class: wordClass,
     left = 3,
     right = 3,
     min_frequency = 5,
@@ -876,6 +910,23 @@ app.get("/api/collocations", (req, res) => {
     // -------------------------------------------------------
 
     const wordSearch = buildWordSearch(cleanQuery);
+    const variantConditions = [];
+    const variantParams = [];
+
+    if (pos) {
+      variantConditions.push("w.pos = ?");
+      variantParams.push(String(pos));
+    }
+
+    if (wordClass) {
+      variantConditions.push("w.class = ?");
+      variantParams.push(String(wordClass));
+    }
+
+    const variantWhere =
+      variantConditions.length > 0
+        ? `AND ${variantConditions.join(" AND ")}`
+        : "";
 
     if (!wordSearch) {
       return res.status(400).json({
@@ -942,6 +993,7 @@ app.get("/api/collocations", (req, res) => {
         AND collocate.position != w.position
 
       WHERE ${wordSearch.sql}
+        ${variantWhere}
 
         -- Remove punctuation-only tokens
         AND collocate.word GLOB '*[A-Za-z0-9]*'
@@ -964,6 +1016,7 @@ app.get("/api/collocations", (req, res) => {
       leftWindow,
       rightWindow,
       ...wordSearch.params,
+      ...variantParams,
       minFrequency,
       resultLimit,
     ];
@@ -1026,6 +1079,8 @@ app.get("/api/collocations/concordance", (req, res) => {
     target,
     collocate,
     position,
+    pos,
+    class: wordClass,
     left = 5,
     right = 5,
     limit = 20,
@@ -1084,6 +1139,17 @@ app.get("/api/collocations/concordance", (req, res) => {
     const conditions = ["LOWER(target.word) = ?", "LOWER(collocate.word) = ?"];
 
     const parameters = [targetWord, collocateWord];
+
+    // Restrict target occurrences to the selected variant.
+    if (pos) {
+      conditions.push("target.pos = ?");
+      parameters.push(String(pos));
+    }
+
+    if (wordClass) {
+      conditions.push("target.class = ?");
+      parameters.push(String(wordClass));
+    }
 
     if (hasPosition) {
       conditions.push("collocate.position = target.position + ?");
@@ -1155,7 +1221,7 @@ app.get("/api/collocations/concordance", (req, res) => {
       }
 
       results.push({
-        id: utterance.id,
+        id: `${utterance.id}-${match.target_position}-${match.collocate_position}`,
         text_id: utterance.text_id,
         corpus_id: utterance.corpus_id,
         filename: utterance.filename,
