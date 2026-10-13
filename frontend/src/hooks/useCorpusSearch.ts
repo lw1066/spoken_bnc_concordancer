@@ -6,6 +6,7 @@ import type {
   KwicResult,
   SearchType,
   UniqueWord,
+  SelectedVariant,
 } from "../types/corpus";
 
 export default function useCorpusSearch() {
@@ -24,7 +25,7 @@ export default function useCorpusSearch() {
   const [totalMatches, setTotalMatches] = useState<number>(0);
   const [originalTotalMatches, setOriginalTotalMatches] = useState(0);
   const [uniqueWords, setUniqueWords] = useState<UniqueWord[]>([]);
-  const [selectedWords, setSelectedWords] = useState<string[]>([]);
+  const [selectedWords, setSelectedWords] = useState<SelectedVariant[]>([]);
   const [results, setResults] = useState<KwicResult[]>([]);
 
   const [loading, setLoading] = useState<boolean>(false);
@@ -39,6 +40,7 @@ export default function useCorpusSearch() {
   const [collocationsError, setCollocationsError] = useState<string>("");
   const [collocationsSearched, setCollocationsSearched] = useState(false);
   const [collocationTotalMatches, setCollocationTotalMatches] = useState(0);
+  const [searchAllVariants, setSearchAllVariants] = useState(false);
 
   const [collocationFilter, setCollocationFilter] = useState<{
     word: string;
@@ -66,22 +68,13 @@ export default function useCorpusSearch() {
 
       if (submittedSearchType === "word") {
         params.set("query", submittedQuery);
-
-        if (selectedWords.length > 0) {
-          params.set("filter_words", selectedWords.join(","));
-        }
-      }
-
-      if (submittedSearchType === "lemma") {
+      } else if (submittedSearchType === "lemma") {
         params.set("lemma", submittedQuery);
-
-        if (selectedWords.length > 0) {
-          params.set("filter_words", selectedWords.join(","));
-        }
       }
 
-      if (submittedSearchType === "pos") {
-        params.set("pos", submittedQuery);
+      // Apply selected variants to word and lemma searches.
+      if (selectedWords.length > 0) {
+        params.set("filter_words", JSON.stringify(selectedWords));
       }
 
       params.set("window_size", String(windowSize));
@@ -89,7 +82,6 @@ export default function useCorpusSearch() {
       params.set("page", String(page));
 
       const url = `http://localhost:8000/api/search?${params.toString()}`;
-
       const response = await fetch(url);
 
       if (!response.ok) {
@@ -121,9 +113,16 @@ export default function useCorpusSearch() {
   };
 
   const fetchCollocations = async () => {
-    setCollocationsSearched(true);
-    const collocationQuery =
-      selectedWords.length === 1 ? selectedWords[0] : submittedQuery.trim();
+    const variant =
+      selectedWords.length === 1
+        ? selectedWords[0]
+        : uniqueWords.length === 1
+          ? uniqueWords[0]
+          : null;
+
+    const collocationQuery = useAllVariants
+      ? submittedQuery.trim()
+      : (variant?.word ?? "");
 
     if (!collocationQuery) {
       setCollocationsSearched(false);
@@ -131,6 +130,7 @@ export default function useCorpusSearch() {
       return;
     }
 
+    setCollocationsSearched(true);
     setCollocationsLoading(true);
     setCollocationsError("");
     setCollocations([]);
@@ -140,6 +140,15 @@ export default function useCorpusSearch() {
       const params = new URLSearchParams();
 
       params.set("query", collocationQuery);
+      if (!useAllVariants && variant) {
+        if (variant.pos) {
+          params.set("pos", variant.pos);
+        }
+
+        if (variant.wordClass) {
+          params.set("class", variant.wordClass);
+        }
+      }
       params.set("left", String(collocationLeft));
       params.set("right", String(collocationRight));
       params.set("min_frequency", String(minCollocationFrequency));
@@ -179,7 +188,9 @@ export default function useCorpusSearch() {
       const params = new URLSearchParams();
 
       const collocationTarget =
-        selectedWords.length === 1 ? selectedWords[0] : submittedQuery.trim();
+        selectedWords.length === 1
+          ? selectedWords[0].word
+          : submittedQuery.trim();
 
       params.set("target", collocationTarget);
       params.set("collocate", collocate);
@@ -187,6 +198,19 @@ export default function useCorpusSearch() {
       params.set("right", String(collocationRight));
       params.set("limit", String(limit));
       params.set("page", String(requestedPage));
+
+      // Pass the selected variant's POS and class to the backend.
+      if (selectedWords.length === 1) {
+        const variant = selectedWords[0];
+
+        if (variant.pos) {
+          params.set("pos", variant.pos);
+        }
+
+        if (variant.wordClass) {
+          params.set("class", variant.wordClass);
+        }
+      }
 
       if (position !== null) {
         params.set("position", String(position));
@@ -235,6 +259,7 @@ export default function useCorpusSearch() {
     }
 
     setPage(1);
+    setUniqueWords([]);
     setSelectedWords([]);
     setCollocations([]);
     setCollocationsSearched(false);
@@ -290,23 +315,54 @@ export default function useCorpusSearch() {
     setPage(1);
   };
 
-  const toggleWordSelection = (word: string) => {
+  const handleSearchAllVariantsChange = (checked: boolean) => {
+    setSearchAllVariants(checked);
+
+    if (checked) {
+      setSelectedWords([]);
+      resetCollocationState();
+    }
+  };
+
+  const toggleWordSelection = (variant: SelectedVariant) => {
+    setSearchAllVariants(false);
     resetCollocationState();
 
     setSelectedWords((current) => {
-      if (current.includes(word)) {
-        return current.filter((selected) => selected !== word);
+      const alreadySelected = current.some(
+        (selected) =>
+          selected.word === variant.word &&
+          selected.pos === variant.pos &&
+          selected.wordClass === variant.wordClass,
+      );
+
+      if (alreadySelected) {
+        return current.filter(
+          (selected) =>
+            !(
+              selected.word === variant.word &&
+              selected.pos === variant.pos &&
+              selected.wordClass === variant.wordClass
+            ),
+        );
       }
 
-      return [...current, word];
+      return [...current, variant];
     });
   };
 
-  const removeSelectedWord = (word: string) => {
+  const removeSelectedWord = (variant: SelectedVariant) => {
     resetCollocationState();
 
     setSelectedWords((current) =>
-      current.filter((selected) => selected !== word),
+      current.filter(
+        (selected) =>
+          !(
+            selected.word === variant.word &&
+            selected.pos === variant.pos &&
+            selected.wordClass === variant.wordClass
+          ),
+      ),
     );
   };
 
@@ -317,26 +373,17 @@ export default function useCorpusSearch() {
 
   const updateCollocationLeft = (value: number) => {
     setCollocationLeft(value);
-    setCollocationsSearched(false);
-    setCollocationFilter(null);
-    setSelectedCollocation(null);
-    setPage(1);
+    resetCollocationState();
   };
 
   const updateCollocationRight = (value: number) => {
     setCollocationRight(value);
-    setCollocationsSearched(false);
-    setCollocationFilter(null);
-    setSelectedCollocation(null);
-    setPage(1);
+    resetCollocationState();
   };
 
   const updateMinCollocationFrequency = (value: number) => {
     setMinCollocationFrequency(value);
-    setCollocationsSearched(false);
-    setCollocationFilter(null);
-    setSelectedCollocation(null);
-    setPage(1);
+    resetCollocationState();
   };
 
   const updateCollocationFilter = (
@@ -350,6 +397,39 @@ export default function useCorpusSearch() {
     }
   };
 
+  const resetSearch = () => {
+    setSearchType("word");
+    setSubmittedSearchType("word");
+    setQuery("");
+    setSubmittedQuery("");
+
+    setPendingWindowSize(5);
+    setWindowSize(5);
+    setLimit(20);
+    setPage(1);
+
+    setTotalMatches(0);
+    setOriginalTotalMatches(0);
+    setUniqueWords([]);
+    setSelectedWords([]);
+    setResults([]);
+    setError("");
+
+    setSearchAllVariants(false);
+    setMinCollocationFrequency(5);
+    setCollocationLeft(3);
+    setCollocationRight(3);
+    resetCollocationState();
+
+    setLoading(false);
+    setCollocationsLoading(false);
+  };
+
+  const showAllVariantsOption =
+    submittedSearchType === "word" && !/[*]/.test(submittedQuery.trim());
+
+  const useAllVariants = searchAllVariants && showAllVariantsOption;
+
   const displayedTotalMatches = collocationFilter
     ? collocationTotalMatches
     : totalMatches;
@@ -360,18 +440,19 @@ export default function useCorpusSearch() {
     submittedSearchType === "word" && submittedQuery.includes("*");
 
   const canRunCollocations =
+    useAllVariants ||
     selectedWords.length === 1 ||
-    (submittedSearchType === "word" &&
-      !isWildcardSearch &&
-      submittedQuery.trim() !== "" &&
-      selectedWords.length === 0);
+    (selectedWords.length === 0 && uniqueWords.length === 1);
 
-  const collocationMessage =
-    submittedSearchType === "lemma" && selectedWords.length !== 1
-      ? "Choose a single variant to look at collocations."
-      : isWildcardSearch && selectedWords.length !== 1
-        ? "Choose a single variant to look at collocations."
-        : undefined;
+  const collocationMessage = useAllVariants
+    ? undefined
+    : selectedWords.length === 1
+      ? undefined
+      : uniqueWords.length === 1
+        ? undefined
+        : isWildcardSearch || submittedSearchType === "lemma"
+          ? "Choose a single vocabulary variant to use collocations."
+          : "Choose a single vocabulary variant, or tick Use all variants.";
 
   return {
     searchType,
@@ -418,5 +499,10 @@ export default function useCorpusSearch() {
     clearSelectedWords,
     minCollocationFrequency,
     updateMinCollocationFrequency,
+    searchAllVariants,
+    setSearchAllVariants,
+    showAllVariantsOption,
+    handleSearchAllVariantsChange,
+    resetSearch,
   };
 }

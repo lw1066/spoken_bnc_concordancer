@@ -12,6 +12,7 @@ type SearchControlsProps = {
   submittedQuery: string;
   submittedSearchType: SearchType;
   concordanceCount: number;
+  resetSearch: () => void;
 };
 
 export default function SearchControls({
@@ -26,13 +27,14 @@ export default function SearchControls({
   submittedQuery,
   submittedSearchType,
   concordanceCount,
+  resetSearch,
 }: SearchControlsProps) {
   return (
     <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="mb-3">
         <h3 className="text-sm font-semibold text-slate-800">Concordances</h3>
         <p className="mt-1 text-xs leading-relaxed text-slate-500">
-          Choose a search word, lemma or POS to examine.
+          Choose a word or lemma to examine.
         </p>
       </div>
       {/* Search Type */}{" "}
@@ -54,7 +56,6 @@ export default function SearchControls({
           >
             <option value="word">Word</option>
             <option value="lemma">Lemma</option>
-            <option value="pos">POS</option>
           </select>
         </div>
         {/* Search Input and Go Button */}
@@ -81,7 +82,7 @@ export default function SearchControls({
             className="h-10 min-w-0 flex-1 rounded-lg border border-slate-300 px-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
           />
         </div>
-        <div className="xl:ml-8">
+        <div className="flex gap-2 xl:ml-8">
           {" "}
           <button
             type="button"
@@ -104,6 +105,13 @@ export default function SearchControls({
                   submittedQuery.trim() !== ""
                 ? `${concordanceCount.toLocaleString()} concordances`
                 : "Find concordances"}
+          </button>
+          <button
+            type="button"
+            onClick={resetSearch}
+            className="h-10 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            Reset
           </button>
         </div>
       </div>

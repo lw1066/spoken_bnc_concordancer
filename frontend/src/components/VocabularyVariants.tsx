@@ -1,10 +1,11 @@
-import type { UniqueWord } from "../types/corpus";
+import type { UniqueWord, SelectedVariant } from "../types/corpus";
+import { getPosDescription, getPosLabel } from "../utils/posLabels";
 
 interface VocabularyVariantsProps {
   showVocabularyVariants: boolean;
   uniqueWords: UniqueWord[];
-  selectedWords: string[];
-  toggleWordSelection: (word: string) => void;
+  selectedWords: SelectedVariant[];
+  toggleWordSelection: (variant: SelectedVariant) => void;
 }
 
 export default function VocabularyVariants({
@@ -38,17 +39,26 @@ export default function VocabularyVariants({
 
         <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-2">
           {uniqueWords.map((item) => {
-            const isSelected = selectedWords.includes(item.word);
+            const isSelected = selectedWords.some(
+              (selected) =>
+                selected.word === item.word &&
+                selected.pos === item.pos &&
+                selected.wordClass === item.wordClass,
+            );
 
             return (
               <button
-                key={item.word}
+                key={`${item.word}-${item.pos}-${item.wordClass}`}
                 type="button"
-                onClick={() => toggleWordSelection(item.word)}
-                aria-pressed={isSelected}
-                title={
-                  isSelected ? `Remove ${item.word}` : `Show only ${item.word}`
+                onClick={() =>
+                  toggleWordSelection({
+                    word: item.word,
+                    pos: item.pos,
+                    wordClass: item.wordClass,
+                  })
                 }
+                aria-pressed={isSelected}
+                title={isSelected ? `Remove ${item.word}` : `Show ${item.word}`}
                 className={`
                   inline-flex
                   items-center
@@ -70,7 +80,15 @@ export default function VocabularyVariants({
                   }
                 `}
               >
-                <span>{item.word}</span>
+                <span>
+                  <span className="font-bold text-slate-900">{item.word}</span>{" "}
+                  <span
+                    title={getPosDescription(item.pos)}
+                    className="text-[10px] font-normal text-slate-500 cursor-help"
+                  >
+                    ({getPosLabel(item.pos)})
+                  </span>
+                </span>
 
                 <span
                   className={`

@@ -11,6 +11,10 @@ interface CollocationControlsProps {
   setMinCollocationFrequency: (value: number) => void;
   collocationsSearched: boolean;
   collocationCount: number;
+  searchAllVariants: boolean;
+  setSearchAllVariants: (value: boolean) => void;
+  showAllVariantsOption: boolean;
+  handleSearchAllVariantsChange: (checked: boolean) => void;
 }
 
 export default function CollocationControls({
@@ -26,6 +30,10 @@ export default function CollocationControls({
   setMinCollocationFrequency,
   collocationsSearched,
   collocationCount,
+  searchAllVariants,
+  setSearchAllVariants,
+  showAllVariantsOption,
+  handleSearchAllVariantsChange,
 }: CollocationControlsProps) {
   return (
     <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -34,10 +42,26 @@ export default function CollocationControls({
         <h3 className="text-sm font-semibold text-slate-800">Collocations</h3>
 
         <p className="mt-1 text-xs leading-relaxed text-slate-500">
-          {canRunCollocations
-            ? "Choose how many words to examine on either side of target search term."
-            : collocationMessage}
+          {searchAllVariants
+            ? "Collocations will include all grammatical variants. Set window and frequency limits."
+            : canRunCollocations
+              ? "Collocations will only include the single variant chosen. Set window and frequency limits."
+              : collocationMessage}
         </p>
+        {showAllVariantsOption && (
+          <label className="mb-4 flex items-start gap-2 text-xs text-slate-500">
+            <input
+              type="checkbox"
+              checked={searchAllVariants}
+              onChange={(event) =>
+                handleSearchAllVariantsChange(event.target.checked)
+              }
+              disabled={loading}
+              className="mt-0.5 rounded border-slate-300"
+            />
+            <span>Use all variants</span>
+          </label>
+        )}
       </div>
 
       {/* Controls */}

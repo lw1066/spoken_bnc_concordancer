@@ -10,6 +10,7 @@ import Pagination from "./components/Pagination";
 import ResultDetailsModal from "./components/ResultDetailsModal";
 import CollocationsPanel from "./components/CollocationsPanel";
 import ResultsToolbar from "./components/resultsToolbar";
+import { getPosLabel, getPosLabelWithClass } from "./utils/posLabels";
 
 export default function App() {
   const [selectedResult, setSelectedResult] = useState<KwicResult | null>(null);
@@ -55,6 +56,11 @@ export default function App() {
     collocationFilter,
     displayedTotalMatches,
     originalTotalMatches,
+    searchAllVariants,
+    setSearchAllVariants,
+    showAllVariantsOption,
+    handleSearchAllVariantsChange,
+    resetSearch,
   } = useCorpusSearch();
 
   useEffect(() => {
@@ -75,10 +81,13 @@ export default function App() {
     };
   }, [selectedResult]);
 
-  const showVocabularyVariants =
-    uniqueWords.length > 0 &&
-    (submittedSearchType === "lemma" ||
-      (submittedSearchType === "word" && submittedQuery.includes("*")));
+  const formatVariantLabel = (variant: (typeof selectedWords)[number]) => {
+    const label = getPosLabel(variant.pos ?? null);
+
+    return `${variant.word} (${label})`;
+  };
+
+  const showVocabularyVariants = uniqueWords.length > 0;
 
   const searchPlaceholder =
     searchType === "word"
@@ -94,11 +103,12 @@ export default function App() {
         ? "Search Lemma"
         : "Search POS Tag";
 
-  const collocationTarget =
-    selectedWords.length === 1 ? selectedWords[0] : submittedQuery;
-
   const resultsHeading = collocationFilter
-    ? `Results for "${collocationTarget}" + "${collocationFilter.word}"${
+    ? `Results for "${
+        selectedWords.length === 1
+          ? formatVariantLabel(selectedWords[0])
+          : submittedQuery
+      }" + "${collocationFilter.word}"${
         collocationFilter.position === null
           ? ""
           : collocationFilter.position < 0
@@ -106,7 +116,9 @@ export default function App() {
             : ` (${collocationFilter.position} words right)`
       }`
     : selectedWords.length > 0
-      ? `Results for ${selectedWords.map((word) => `"${word}"`).join(", ")}`
+      ? `Results for ${selectedWords
+          .map((variant) => `"${formatVariantLabel(variant)}"`)
+          .join(", ")}`
       : `Results for "${submittedQuery}"`;
 
   return (
@@ -147,6 +159,7 @@ export default function App() {
                 onSearchTypeChange={setSearchType}
                 onQueryChange={setQuery}
                 onSearch={handleSearch}
+                resetSearch={resetSearch}
               />
             </div>
 
@@ -166,6 +179,10 @@ export default function App() {
                   setMinCollocationFrequency={updateMinCollocationFrequency}
                   collocationsSearched={collocationsSearched}
                   collocationCount={collocations.length}
+                  searchAllVariants={searchAllVariants}
+                  setSearchAllVariants={setSearchAllVariants}
+                  showAllVariantsOption={showAllVariantsOption}
+                  handleSearchAllVariantsChange={handleSearchAllVariantsChange}
                 />
               </div>
             )}
@@ -193,7 +210,9 @@ export default function App() {
               collocationsError={collocationsError}
               selectedCollocation={selectedCollocation}
               collocationTarget={
-                selectedWords.length === 1 ? selectedWords[0] : submittedQuery
+                selectedWords.length === 1
+                  ? selectedWords[0].word
+                  : submittedQuery
               }
               setPage={setPage}
               updateCollocationFilter={updateCollocationFilter}

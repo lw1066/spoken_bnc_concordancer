@@ -56,7 +56,7 @@ export default function ConcordanceTable({
           ) : (
             results.map((row) => (
               <tr
-                key={`${row.id}-${row.position ?? "word"}`}
+                key={row.id}
                 className="hover:bg-slate-50/70 transition-colors"
               >
                 <td className="px-4 py-3.5 text-right text-slate-600 align-top break-words whitespace-normal">
