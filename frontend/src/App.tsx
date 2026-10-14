@@ -10,7 +10,7 @@ import Pagination from "./components/Pagination";
 import ResultDetailsModal from "./components/ResultDetailsModal";
 import CollocationsPanel from "./components/CollocationsPanel";
 import ResultsToolbar from "./components/resultsToolbar";
-import { getPosLabel, getPosLabelWithClass } from "./utils/posLabels";
+import { getPosLabel } from "./utils/posLabels";
 
 export default function App() {
   const [selectedResult, setSelectedResult] = useState<KwicResult | null>(null);
@@ -61,6 +61,8 @@ export default function App() {
     showAllVariantsOption,
     handleSearchAllVariantsChange,
     resetSearch,
+    punctuation,
+    setPunctuation,
   } = useCorpusSearch();
 
   useEffect(() => {
@@ -94,14 +96,14 @@ export default function App() {
       ? "e.g. honest, run*, *ing"
       : searchType === "lemma"
         ? "e.g. game, run, be"
-        : "e.g. NN1, NN2, VV0, JJ";
+        : "e.g. run out, you know what";
 
   const searchLabel =
     searchType === "word"
       ? "Search Word Token"
       : searchType === "lemma"
         ? "Search Lemma"
-        : "Search POS Tag";
+        : "Search Phrase";
 
   const resultsHeading = collocationFilter
     ? `Results for "${
@@ -160,6 +162,8 @@ export default function App() {
                 onQueryChange={setQuery}
                 onSearch={handleSearch}
                 resetSearch={resetSearch}
+                punctuation={punctuation}
+                onPunctuationChange={setPunctuation}
               />
             </div>
 
