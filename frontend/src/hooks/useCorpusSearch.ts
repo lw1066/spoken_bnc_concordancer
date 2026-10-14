@@ -7,6 +7,7 @@ import type {
   SearchType,
   UniqueWord,
   SelectedVariant,
+  PunctuationMode,
 } from "../types/corpus";
 
 export default function useCorpusSearch() {
@@ -16,6 +17,9 @@ export default function useCorpusSearch() {
 
   const [query, setQuery] = useState<string>("");
   const [submittedQuery, setSubmittedQuery] = useState<string>("");
+  const [punctuation, setPunctuation] = useState<PunctuationMode>("ignore");
+  const [submittedPunctuation, setSubmittedPunctuation] =
+    useState<PunctuationMode>("ignore");
 
   const [windowSize, setWindowSize] = useState<number>(5);
   const [pendingWindowSize, setPendingWindowSize] = useState<number>(5);
@@ -70,6 +74,10 @@ export default function useCorpusSearch() {
         params.set("query", submittedQuery);
       } else if (submittedSearchType === "lemma") {
         params.set("lemma", submittedQuery);
+      } else if (submittedSearchType === "phrase") {
+        params.set("query", submittedQuery);
+        params.set("search_type", "phrase");
+        params.set("punctuation", submittedPunctuation);
       }
 
       // Apply selected variants to word and lemma searches.
@@ -269,6 +277,7 @@ export default function useCorpusSearch() {
     setOriginalTotalMatches(0);
     setSubmittedSearchType(searchType);
     setSubmittedQuery(trimmedQuery);
+    setSubmittedPunctuation(punctuation);
   };
 
   useEffect(() => {
@@ -290,6 +299,7 @@ export default function useCorpusSearch() {
   }, [
     submittedSearchType,
     submittedQuery,
+    submittedPunctuation,
     windowSize,
     limit,
     page,
@@ -402,6 +412,8 @@ export default function useCorpusSearch() {
     setSubmittedSearchType("word");
     setQuery("");
     setSubmittedQuery("");
+    setPunctuation("ignore");
+    setSubmittedPunctuation("ignore");
 
     setPendingWindowSize(5);
     setWindowSize(5);
@@ -504,5 +516,8 @@ export default function useCorpusSearch() {
     showAllVariantsOption,
     handleSearchAllVariantsChange,
     resetSearch,
+    punctuation,
+    setPunctuation,
+    submittedPunctuation,
   };
 }
