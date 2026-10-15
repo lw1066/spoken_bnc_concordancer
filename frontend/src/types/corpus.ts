@@ -1,7 +1,5 @@
 export type SearchType = "word" | "lemma" | "phrase";
 
-export type PunctuationMode = "include" | "ignore";
-
 export type Collocation = {
   word: string;
   frequency: number;

@@ -7,7 +7,6 @@ import type {
   SearchType,
   UniqueWord,
   SelectedVariant,
-  PunctuationMode,
 } from "../types/corpus";
 
 export default function useCorpusSearch() {
@@ -17,9 +16,6 @@ export default function useCorpusSearch() {
 
   const [query, setQuery] = useState<string>("");
   const [submittedQuery, setSubmittedQuery] = useState<string>("");
-  const [punctuation, setPunctuation] = useState<PunctuationMode>("ignore");
-  const [submittedPunctuation, setSubmittedPunctuation] =
-    useState<PunctuationMode>("ignore");
 
   const [windowSize, setWindowSize] = useState<number>(5);
   const [pendingWindowSize, setPendingWindowSize] = useState<number>(5);
@@ -77,7 +73,6 @@ export default function useCorpusSearch() {
       } else if (submittedSearchType === "phrase") {
         params.set("query", submittedQuery);
         params.set("search_type", "phrase");
-        params.set("punctuation", submittedPunctuation);
       }
 
       // Apply selected variants to word and lemma searches.
@@ -128,9 +123,13 @@ export default function useCorpusSearch() {
           ? uniqueWords[0]
           : null;
 
-    const collocationQuery = useAllVariants
+    const isPhraseSearch = submittedSearchType === "phrase";
+
+    const collocationQuery = isPhraseSearch
       ? submittedQuery.trim()
-      : (variant?.word ?? "");
+      : useAllVariants
+        ? submittedQuery.trim()
+        : (variant?.word ?? "");
 
     if (!collocationQuery) {
       setCollocationsSearched(false);
@@ -148,6 +147,8 @@ export default function useCorpusSearch() {
       const params = new URLSearchParams();
 
       params.set("query", collocationQuery);
+      params.set("search_type", submittedSearchType);
+
       if (!useAllVariants && variant) {
         if (variant.pos) {
           params.set("pos", variant.pos);
@@ -277,7 +278,6 @@ export default function useCorpusSearch() {
     setOriginalTotalMatches(0);
     setSubmittedSearchType(searchType);
     setSubmittedQuery(trimmedQuery);
-    setSubmittedPunctuation(punctuation);
   };
 
   useEffect(() => {
@@ -299,7 +299,6 @@ export default function useCorpusSearch() {
   }, [
     submittedSearchType,
     submittedQuery,
-    submittedPunctuation,
     windowSize,
     limit,
     page,
@@ -412,9 +411,6 @@ export default function useCorpusSearch() {
     setSubmittedSearchType("word");
     setQuery("");
     setSubmittedQuery("");
-    setPunctuation("ignore");
-    setSubmittedPunctuation("ignore");
-
     setPendingWindowSize(5);
     setWindowSize(5);
     setLimit(20);
@@ -452,6 +448,7 @@ export default function useCorpusSearch() {
     submittedSearchType === "word" && submittedQuery.includes("*");
 
   const canRunCollocations =
+    submittedSearchType === "phrase" ||
     useAllVariants ||
     selectedWords.length === 1 ||
     (selectedWords.length === 0 && uniqueWords.length === 1);
@@ -516,8 +513,5 @@ export default function useCorpusSearch() {
     showAllVariantsOption,
     handleSearchAllVariantsChange,
     resetSearch,
-    punctuation,
-    setPunctuation,
-    submittedPunctuation,
   };
 }

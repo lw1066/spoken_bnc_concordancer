@@ -1,4 +1,4 @@
-import type { SearchType, PunctuationMode } from "../types/corpus";
+import type { SearchType } from "../types/corpus";
 
 type SearchControlsProps = {
   searchType: SearchType;
@@ -13,8 +13,6 @@ type SearchControlsProps = {
   submittedSearchType: SearchType;
   concordanceCount: number;
   resetSearch: () => void;
-  punctuation: PunctuationMode;
-  onPunctuationChange: (value: PunctuationMode) => void;
 };
 
 export default function SearchControls({
@@ -30,8 +28,6 @@ export default function SearchControls({
   submittedSearchType,
   concordanceCount,
   resetSearch,
-  punctuation,
-  onPunctuationChange,
 }: SearchControlsProps) {
   return (
     <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -64,27 +60,6 @@ export default function SearchControls({
           </select>
         </div>
 
-        {searchType === "phrase" && (
-          <div className="min-w-0 flex-1">
-            <label
-              htmlFor="punctuation-mode"
-              className="mb-2 block text-sm font-medium text-slate-700"
-            >
-              Punctuation
-            </label>
-            <select
-              id="punctuation-mode"
-              value={punctuation}
-              onChange={(event) =>
-                onPunctuationChange(event.target.value as PunctuationMode)
-              }
-              className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
-            >
-              <option value="ignore">Ignore</option>
-              <option value="include">Include</option>
-            </select>
-          </div>
-        )}
         {/* Search Input and Go Button */}
         <div className="min-w-0">
           <label
@@ -97,7 +72,6 @@ export default function SearchControls({
           <input
             id="search-query"
             type="text"
-            maxLength={20}
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
             onKeyDown={(event) => {

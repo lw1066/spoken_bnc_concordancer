@@ -61,8 +61,6 @@ export default function App() {
     showAllVariantsOption,
     handleSearchAllVariantsChange,
     resetSearch,
-    punctuation,
-    setPunctuation,
   } = useCorpusSearch();
 
   useEffect(() => {
@@ -162,8 +160,6 @@ export default function App() {
                 onQueryChange={setQuery}
                 onSearch={handleSearch}
                 resetSearch={resetSearch}
-                punctuation={punctuation}
-                onPunctuationChange={setPunctuation}
               />
             </div>
 
