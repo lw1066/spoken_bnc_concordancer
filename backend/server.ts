@@ -3,7 +3,7 @@ import cors from "cors";
 import Database from "better-sqlite3";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { findPhraseOccurrences } from "./searchHelpers.ts";
+import { findPhraseOccurrenceAt } from "./searchHelpers.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -387,7 +387,6 @@ app.get("/api/search", (req, res) => {
       page = "1",
       filter_words = "",
       search_type = "word",
-      punctuation = "ignore",
     } = req.query;
 
     const window = Math.max(
@@ -666,7 +665,6 @@ app.get("/api/search", (req, res) => {
 
     if (String(search_type) === "phrase") {
       const cleanQuery = String(query).trim();
-      const punctuationMode = String(punctuation).toLowerCase();
 
       if (!cleanQuery) {
         return res.status(400).json({
@@ -674,18 +672,11 @@ app.get("/api/search", (req, res) => {
         });
       }
 
-      if (!["include", "ignore"].includes(punctuationMode)) {
-        return res.status(400).json({
-          error: "punctuation must be 'include' or 'ignore'.",
-        });
-      }
-
       const queryTokens = tokenizePhrase(cleanQuery);
 
-      const phraseTokens =
-        punctuationMode === "ignore"
-          ? queryTokens.filter((token) => !/^[^\p{L}\p{N}]+$/u.test(token))
-          : queryTokens;
+      const phraseTokens = queryTokens.filter((token) =>
+        /[\p{L}\p{N}]/u.test(token),
+      );
 
       if (phraseTokens.length === 0) {
         return res.status(400).json({
@@ -725,38 +716,15 @@ app.get("/api/search", (req, res) => {
 
         if (startIndex === -1) continue;
 
-        let tokenIndex = startIndex;
-        let matched = true;
+        const occurrence = findPhraseOccurrenceAt(
+          tokens,
+          startIndex,
+          phraseTokens,
+        );
 
-        for (let i = 0; i < phraseTokens.length; i++) {
-          const expected = phraseTokens[i].toLowerCase();
+        if (!occurrence) continue;
 
-          if (punctuationMode === "ignore") {
-            while (
-              tokenIndex < tokens.length &&
-              isPunctuationToken(tokens[tokenIndex])
-            ) {
-              tokenIndex++;
-            }
-          }
-
-          if (
-            tokenIndex >= tokens.length ||
-            tokens[tokenIndex].word.toLowerCase() !== expected
-          ) {
-            matched = false;
-            break;
-          }
-
-          tokenIndex++;
-        }
-
-        if (!matched) continue;
-
-        // In include mode, all tokens must be adjacent.
-        // In ignore mode, punctuation between words is skipped.
-        // Ordinary intervening words are never skipped.
-        const phraseEndIndex = tokenIndex;
+        const phraseEndIndex = occurrence.endIndexExclusive;
 
         totalMatches++;
 
@@ -806,7 +774,6 @@ app.get("/api/search", (req, res) => {
       return res.json({
         status: "success",
         search_type: "phrase",
-        punctuation: punctuationMode,
         total_matches: totalMatches,
         page: currentPage,
         limit: resultLimit,
@@ -1192,6 +1159,161 @@ app.get("/api/collocations", (req, res) => {
     }
 
     // -------------------------------------------------------
+    // Phrase collocations
+    //
+    // Punctuation is always ignored for collocation searches.
+    // The left window is measured from the first phrase token;
+    // the right window is measured from the last phrase token.
+    // -------------------------------------------------------
+
+    if (String(req.query.search_type) === "phrase") {
+      const phraseTokens = tokenizePhrase(cleanQuery).filter((token) =>
+        /[\p{L}\p{N}]/u.test(token),
+      );
+
+      if (phraseTokens.length === 0) {
+        return res.status(400).json({
+          error: "Enter at least one word in the phrase.",
+        });
+      }
+
+      const firstToken = phraseTokens[0].toLowerCase();
+
+      const candidates = db
+        .prepare(
+          `
+      SELECT utterance_id, position
+      FROM words
+      WHERE LOWER(word) = ?
+      ORDER BY utterance_id, position
+      `,
+        )
+        .iterate(firstToken) as Iterable<PhraseCandidate>;
+
+      const collocateCounts = new Map<
+        string,
+        { frequency: number; positions: Record<string, number> }
+      >();
+
+      let currentUtteranceId: number | null = null;
+      let tokens: CorpusToken[] = [];
+
+      for (const candidate of candidates) {
+        if (candidate.utterance_id !== currentUtteranceId) {
+          currentUtteranceId = candidate.utterance_id;
+          tokens = getUtteranceWords(currentUtteranceId);
+        }
+
+        const startIndex = tokens.findIndex(
+          (token) => token.position === candidate.position,
+        );
+
+        if (startIndex === -1) continue;
+
+        const occurrence = findPhraseOccurrenceAt(
+          tokens,
+          startIndex,
+          phraseTokens,
+        );
+
+        if (!occurrence) continue;
+
+        const phraseStartPosition = tokens[occurrence.startIndex].position;
+        const phraseEndPosition =
+          tokens[occurrence.endIndexExclusive - 1].position;
+
+        const phraseStartIndex = occurrence.startIndex;
+        const phraseEndIndex = occurrence.endIndexExclusive - 1;
+
+        // Count actual words to the left, skipping punctuation and annotations.
+        let index = phraseStartIndex - 1;
+        let distance = 0;
+
+        while (index >= 0 && distance < leftWindow) {
+          const token = tokens[index];
+          index--;
+
+          if (!/[\p{L}\p{N}]/u.test(token.word)) continue;
+          if (token.word.startsWith("--")) continue;
+
+          distance++;
+          const word = token.word.toLowerCase();
+
+          const existing = collocateCounts.get(word) ?? {
+            frequency: 0,
+            positions: {},
+          };
+
+          existing.frequency++;
+          existing.positions[String(-distance)] =
+            (existing.positions[String(-distance)] ?? 0) + 1;
+
+          collocateCounts.set(word, existing);
+        }
+
+        // Count actual words to the right, skipping punctuation and annotations.
+        index = phraseEndIndex + 1;
+        distance = 0;
+
+        while (index < tokens.length && distance < rightWindow) {
+          const token = tokens[index];
+          index++;
+
+          if (!/[\p{L}\p{N}]/u.test(token.word)) continue;
+          if (token.word.startsWith("--")) continue;
+
+          distance++;
+          const word = token.word.toLowerCase();
+
+          const existing = collocateCounts.get(word) ?? {
+            frequency: 0,
+            positions: {},
+          };
+
+          existing.frequency++;
+          existing.positions[String(distance)] =
+            (existing.positions[String(distance)] ?? 0) + 1;
+
+          collocateCounts.set(word, existing);
+        }
+      }
+
+      const collocations = [...collocateCounts.entries()]
+        .map(([word, data]) => {
+          const positions: Record<string, number> = {};
+
+          for (
+            let position = -leftWindow;
+            position <= rightWindow;
+            position++
+          ) {
+            if (position === 0) continue;
+
+            positions[String(position)] = data.positions[String(position)] ?? 0;
+          }
+
+          return {
+            word,
+            frequency: data.frequency,
+            positions,
+          };
+        })
+        .filter((item) => item.frequency >= minFrequency)
+        .sort(
+          (a, b) => b.frequency - a.frequency || a.word.localeCompare(b.word),
+        )
+        .slice(0, resultLimit);
+
+      return res.json({
+        query: cleanQuery,
+        left_window: leftWindow,
+        right_window: rightWindow,
+        min_frequency: minFrequency,
+        collocations,
+      });
+    }
+
+    // -------------------------------------------------------
     // Build target word search
     //
     // Supports:
@@ -1391,14 +1513,12 @@ app.get("/api/collocations/concordance", (req, res) => {
     0,
     Math.min(5, parseInt(getQueryString(left, "3"), 10) || 0),
   );
-
   const rightWindow = Math.max(
     0,
     Math.min(5, parseInt(getQueryString(right, "3"), 10) || 0),
   );
 
   const maxRows = Math.max(1, parseInt(getQueryString(limit, "20"), 10) || 20);
-
   const pageNum = Math.max(1, parseInt(getQueryString(page, "1"), 10) || 1);
 
   const hasPosition =
@@ -1415,6 +1535,7 @@ app.get("/api/collocations/concordance", (req, res) => {
       error: "target and collocate are required",
     });
   }
+
   if (
     hasPosition &&
     (relativePosition === null ||
@@ -1429,19 +1550,9 @@ app.get("/api/collocations/concordance", (req, res) => {
   }
 
   try {
-    /*
-     * Find every occurrence where the collocate occurs
-     * within the requested window around the target.
-     *
-     * If position is supplied, we only return that exact
-     * relative position.
-     */
-
     const conditions = ["LOWER(target.word) = ?", "LOWER(collocate.word) = ?"];
-
     const parameters: (string | number | null)[] = [targetWord, collocateWord];
 
-    // Restrict target occurrences to the selected variant.
     if (pos) {
       conditions.push("target.pos = ?");
       parameters.push(String(pos));
@@ -1454,18 +1565,176 @@ app.get("/api/collocations/concordance", (req, res) => {
 
     if (hasPosition) {
       conditions.push("collocate.position = target.position + ?");
-
       parameters.push(relativePosition);
     } else {
       conditions.push(`
         collocate.position > target.position - ?
         AND collocate.position < target.position + ?
       `);
-
       parameters.push(leftWindow + 1);
       parameters.push(rightWindow + 1);
     }
 
+    // Phrase target branch
+    if (targetWord.includes(" ")) {
+      const phraseTokens = tokenizePhrase(targetWord).filter((token) =>
+        /[\p{L}\p{N}]/u.test(token),
+      );
+
+      if (phraseTokens.length < 2) {
+        return res.status(400).json({
+          error: "A phrase target must contain at least two words",
+        });
+      }
+
+      const firstToken = phraseTokens[0].toLowerCase();
+
+      const candidates = db
+        .prepare(
+          `
+          SELECT utterance_id, position
+          FROM words
+          WHERE LOWER(word) = ?
+          ORDER BY utterance_id, position
+        `,
+        )
+        .iterate(firstToken) as Iterable<{
+        utterance_id: number;
+        position: number;
+      }>;
+
+      const results = [];
+      let totalMatches = 0;
+
+      for (const candidate of candidates) {
+        const tokens = getUtteranceWords(candidate.utterance_id);
+
+        const startIndex = tokens.findIndex(
+          (token) => token.position === candidate.position,
+        );
+
+        if (startIndex === -1) continue;
+
+        const occurrence = findPhraseOccurrenceAt(
+          tokens,
+          startIndex,
+          phraseTokens,
+        );
+
+        if (!occurrence) continue;
+
+        const phraseStartIndex = occurrence.startIndex;
+        const phraseEndIndex = occurrence.endIndexExclusive;
+
+        const phraseStartPosition = tokens[phraseStartIndex].position;
+        const phraseEndPosition = tokens[phraseEndIndex - 1].position;
+
+        const matchedCollocates: Array<{
+          index: number;
+          distance: number;
+        }> = [];
+
+        if (relativePosition !== null) {
+          const expectedPosition =
+            relativePosition < 0
+              ? phraseStartPosition + relativePosition
+              : phraseEndPosition + relativePosition;
+
+          const index = tokens.findIndex(
+            (token) => token.position === expectedPosition,
+          );
+
+          if (
+            index !== -1 &&
+            tokens[index].word.toLowerCase() === collocateWord
+          ) {
+            matchedCollocates.push({
+              index,
+              distance: relativePosition,
+            });
+          }
+        } else {
+          for (
+            let distance = -leftWindow;
+            distance <= rightWindow;
+            distance++
+          ) {
+            if (distance === 0) continue;
+
+            const expectedPosition =
+              distance < 0
+                ? phraseStartPosition + distance
+                : phraseEndPosition + distance;
+
+            const index = tokens.findIndex(
+              (token) => token.position === expectedPosition,
+            );
+
+            if (
+              index !== -1 &&
+              tokens[index].word.toLowerCase() === collocateWord
+            ) {
+              matchedCollocates.push({ index, distance });
+            }
+          }
+        }
+
+        if (matchedCollocates.length === 0) continue;
+
+        const utteranceMap = getUtteranceMap([candidate.utterance_id]);
+        const utterance = utteranceMap.get(candidate.utterance_id);
+
+        if (!utterance) continue;
+
+        const context = buildPhraseContext(
+          tokens,
+          phraseStartIndex,
+          phraseEndIndex - phraseStartIndex,
+          Math.max(leftWindow, rightWindow),
+        );
+
+        for (const match of matchedCollocates) {
+          totalMatches++;
+
+          results.push({
+            id: `${utterance.id}-${phraseStartPosition}-${tokens[match.index].position}`,
+            text_id: utterance.text_id,
+            corpus_id: utterance.corpus_id,
+            filename: utterance.filename,
+            genre: utterance.genre,
+            speaker: utterance.speaker,
+            utterance_number: utterance.utterance_number,
+            trans: utterance.trans,
+            who_confidence: utterance.who_confidence,
+            left_context: context.left_context,
+            target: context.target,
+            right_context: context.right_context,
+            utterance: utterance.display_body,
+            position: match.distance,
+            collocation_target: targetWord,
+            collocation_word: collocateWord,
+          });
+        }
+      }
+
+      const offset = (pageNum - 1) * maxRows;
+      const paginatedResults = results.slice(offset, offset + maxRows);
+
+      return res.json({
+        status: "success",
+        target: targetWord,
+        collocate: collocateWord,
+        position: hasPosition ? relativePosition : null,
+        left_window: leftWindow,
+        right_window: rightWindow,
+        total_matches: totalMatches,
+        page: pageNum,
+        limit: maxRows,
+        results: paginatedResults,
+      });
+    }
+
+    // Single-word target branch — retain the existing SQL approach
     const matchingRows = db
       .prepare(
         `
@@ -1483,15 +1752,8 @@ app.get("/api/collocations/concordance", (req, res) => {
       )
       .all(...parameters) as CollocationMatch[];
 
-    /*
-     * Each row represents one occurrence of the collocate
-     * associated with one occurrence of the target.
-     */
-
     const totalMatches = matchingRows.length;
-
     const offset = (pageNum - 1) * maxRows;
-
     const paginatedRows = matchingRows.slice(offset, offset + maxRows);
 
     const results = [];
@@ -1503,9 +1765,7 @@ app.get("/api/collocations/concordance", (req, res) => {
         (word) => word.position === match.collocate_position,
       );
 
-      if (collocateIndex === -1) {
-        continue;
-      }
+      if (collocateIndex === -1) continue;
 
       const context = buildTokenContext(
         utteranceWords,
@@ -1514,12 +1774,9 @@ app.get("/api/collocations/concordance", (req, res) => {
       );
 
       const utteranceMap = getUtteranceMap([match.utterance_id]);
-
       const utterance = utteranceMap.get(match.utterance_id);
 
-      if (!utterance) {
-        continue;
-      }
+      if (!utterance) continue;
 
       results.push({
         id: `${utterance.id}-${match.target_position}-${match.collocate_position}`,
@@ -1531,15 +1788,11 @@ app.get("/api/collocations/concordance", (req, res) => {
         utterance_number: utterance.utterance_number,
         trans: utterance.trans,
         who_confidence: utterance.who_confidence,
-
         left_context: context.left_context,
         target: context.target,
         right_context: context.right_context,
-
         utterance: utterance.display_body,
-
         position: match.collocate_position - match.target_position,
-
         collocation_target: targetWord,
         collocation_word: collocateWord,
       });

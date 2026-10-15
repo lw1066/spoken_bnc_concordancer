@@ -10,8 +10,6 @@ interface PhraseOccurrence {
   endIndexExclusive: number;
 }
 
-type PunctuationMode = "ignore" | "include";
-
 function isPunctuationToken(token: CorpusToken): boolean {
   return (
     String(token.lemma ?? "").toUpperCase() === "PUNC" ||
@@ -19,45 +17,33 @@ function isPunctuationToken(token: CorpusToken): boolean {
   );
 }
 
-export function findPhraseOccurrences(
+export function findPhraseOccurrenceAt(
   tokens: CorpusToken[],
+  startIndex: number,
   phraseTokens: string[],
-  punctuationMode: PunctuationMode,
-): PhraseOccurrence[] {
-  const occurrences: PhraseOccurrence[] = [];
+): PhraseOccurrence | null {
+  let tokenIndex = startIndex;
 
-  for (let startIndex = 0; startIndex < tokens.length; startIndex++) {
-    let tokenIndex = startIndex;
-    let matched = true;
-
-    for (const phraseToken of phraseTokens) {
-      if (punctuationMode === "ignore") {
-        while (
-          tokenIndex < tokens.length &&
-          isPunctuationToken(tokens[tokenIndex])
-        ) {
-          tokenIndex++;
-        }
-      }
-
-      if (
-        tokenIndex >= tokens.length ||
-        tokens[tokenIndex].word.toLowerCase() !== phraseToken.toLowerCase()
-      ) {
-        matched = false;
-        break;
-      }
-
+  for (const phraseToken of phraseTokens) {
+    while (
+      tokenIndex < tokens.length &&
+      isPunctuationToken(tokens[tokenIndex])
+    ) {
       tokenIndex++;
     }
 
-    if (matched) {
-      occurrences.push({
-        startIndex,
-        endIndexExclusive: tokenIndex,
-      });
+    if (
+      tokenIndex >= tokens.length ||
+      tokens[tokenIndex].word.toLowerCase() !== phraseToken.toLowerCase()
+    ) {
+      return null;
     }
+
+    tokenIndex++;
   }
 
-  return occurrences;
+  return {
+    startIndex,
+    endIndexExclusive: tokenIndex,
+  };
 }
