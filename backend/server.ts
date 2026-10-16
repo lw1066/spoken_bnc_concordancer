@@ -4,6 +4,14 @@ import Database from "better-sqlite3";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { findPhraseOccurrenceAt } from "./searchHelpers.ts";
+import {
+  buildTokenContext,
+  buildWordConcordanceResults,
+  type ConcordanceToken,
+} from "./concordanceHelpers.ts";
+import { getUtteranceMap, getUtteranceWords } from "./databaseHelpers.ts";
+
+import type { CorpusToken, UtteranceRow } from "./databaseHelpers.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,30 +27,6 @@ const db = new Database(path.join(__dirname, "..", "bnc_corpus.db"));
 // ---------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------
-
-interface CorpusToken {
-  id: number;
-  position: number;
-  word: string;
-  lemma: string | null;
-  pos: string | null;
-  class: string | null;
-  usas: string | null;
-}
-
-interface UtteranceRow {
-  id: number;
-  text_id: number;
-  utterance_number: number;
-  speaker: string | null;
-  trans: string | null;
-  who_confidence: string | null;
-  search_body: string | null;
-  display_body: string | null;
-  corpus_id: string;
-  filename: string;
-  genre: string | null;
-}
 
 interface SelectedWord {
   word: string;
@@ -92,116 +76,6 @@ interface MatchingWordRow {
 interface PhraseCandidate {
   utterance_id: number;
   position: number;
-}
-
-/**
- * Build context using the actual token position.
- *
- * tokens = all words/tokens in the utterance, ordered by position
- * targetIndex = array index of the matched token
- * window = number of tokens either side
- */
-function buildTokenContext(
-  tokens: CorpusToken[],
-  targetIndex: number,
-  window: number,
-) {
-  const start = Math.max(0, targetIndex - window);
-  const end = Math.min(tokens.length, targetIndex + window + 1);
-
-  const left = tokens
-    .slice(start, targetIndex)
-    .map((token) => token.word)
-    .join(" ");
-
-  const target = tokens[targetIndex]?.word || "";
-
-  const right = tokens
-    .slice(targetIndex + 1, end)
-    .map((token) => token.word)
-    .join(" ");
-
-  return {
-    left_context: left,
-    target,
-    right_context: right,
-  };
-}
-
-/**
- * Get every token in an utterance in its original XML order.
- */
-function getUtteranceWords(utteranceId: number): CorpusToken[] {
-  return db
-    .prepare(
-      `
-      SELECT
-        id,
-        position,
-        word,
-        lemma,
-        pos,
-        class,
-        usas
-      FROM words
-      WHERE utterance_id = ?
-      ORDER BY position
-      `,
-    )
-    .all(utteranceId) as CorpusToken[];
-}
-
-/**
- * Chunk a large array for SQLite IN (...) queries.
- */
-function chunkArray<T>(array: T[], size: number): T[][] {
-  const chunks = [];
-
-  for (let i = 0; i < array.length; i += size) {
-    chunks.push(array.slice(i, i + size));
-  }
-
-  return chunks;
-}
-
-/**
- * Get utterance metadata for a collection of IDs.
- */
-function getUtteranceMap(utteranceIds: number[]): Map<number, UtteranceRow> {
-  const utteranceMap = new Map<number, UtteranceRow>();
-
-  for (const chunk of chunkArray(utteranceIds, 500)) {
-    const placeholders = chunk.map(() => "?").join(",");
-
-    const rows = db
-      .prepare(
-        `
-        SELECT
-          u.id,
-          u.text_id,
-          u.utterance_number,
-          u.speaker,
-          u.trans,
-          u.who_confidence,
-          u.search_body,
-          u.display_body,
-          t.corpus_id,
-          t.filename,
-          t.genre
-        FROM utterances u
-        JOIN texts t
-          ON t.id = u.text_id
-        WHERE u.id IN (${placeholders})
-        `,
-      )
-      .all(...chunk) as UtteranceRow[];
-
-    for (const row of rows) {
-      utteranceMap.set(row.id, row);
-    }
-  }
-
-  return utteranceMap;
 }
 
 /**
@@ -583,67 +457,22 @@ app.get("/api/search", (req, res) => {
 
       const utteranceIds = [...matchesByUtterance.keys()];
 
-      const utteranceMap = getUtteranceMap(utteranceIds);
+      const utteranceMap = getUtteranceMap(db, utteranceIds);
 
-      // -----------------------------------------------------
       // BUILD CONCORDANCE RESULTS
-      // -----------------------------------------------------
 
-      const paginatedResults = [];
+      const tokenCache = new Map<number, ConcordanceToken[]>();
 
-      const tokenCache = new Map();
-
-      for (const [utteranceId, matches] of matchesByUtterance) {
-        const utterance = utteranceMap.get(utteranceId);
-
-        if (!utterance) {
-          continue;
-        }
-
-        let tokens = tokenCache.get(utteranceId);
-
-        if (!tokens) {
-          tokens = getUtteranceWords(utteranceId);
-          tokenCache.set(utteranceId, tokens);
-        }
-
-        const positionMap = new Map();
-
-        tokens.forEach((token: CorpusToken, index: number) => {
-          positionMap.set(token.position, index);
-        });
-
-        for (const match of matches) {
-          const targetIndex = positionMap.get(match.position);
-
-          if (targetIndex === undefined) {
-            continue;
-          }
-
-          const context = buildTokenContext(tokens, targetIndex, window);
-
-          paginatedResults.push({
-            id: `${utterance.id}-${match.position}`,
-            text_id: utterance.text_id,
-            corpus_id: utterance.corpus_id,
-            filename: utterance.filename,
-            genre: utterance.genre,
-            speaker: utterance.speaker,
-            utterance_number: utterance.utterance_number,
-            trans: utterance.trans,
-            who_confidence: utterance.who_confidence,
-            target: context.target,
-            left_context: context.left_context,
-            right_context: context.right_context,
-            utterance: utterance.display_body,
-            lemma: match.lemma,
-            pos: match.pos,
-            class: match.class,
-            usas: match.usas,
-            position: match.position,
-          });
-        }
+      for (const utteranceId of matchesByUtterance.keys()) {
+        tokenCache.set(utteranceId, getUtteranceWords(db, utteranceId));
       }
+
+      const paginatedResults = buildWordConcordanceResults(
+        matchesByUtterance,
+        utteranceMap,
+        tokenCache,
+        window,
+      );
 
       // -----------------------------------------------------
       // RESPONSE
@@ -707,7 +536,7 @@ app.get("/api/search", (req, res) => {
       for (const candidate of candidates) {
         if (candidate.utterance_id !== currentUtteranceId) {
           currentUtteranceId = candidate.utterance_id;
-          tokens = getUtteranceWords(currentUtteranceId);
+          tokens = getUtteranceWords(db, currentUtteranceId);
         }
 
         const startIndex = tokens.findIndex(
@@ -741,7 +570,7 @@ app.get("/api/search", (req, res) => {
       const utteranceIds = [
         ...new Set(pageMatches.map((match) => match.utterance_id)),
       ];
-      const utteranceMap = getUtteranceMap(utteranceIds);
+      const utteranceMap = getUtteranceMap(db, utteranceIds);
 
       const results = pageMatches.map((match) => {
         const utterance = utteranceMap.get(match.utterance_id);
@@ -985,75 +814,28 @@ app.get("/api/search", (req, res) => {
 
     const utteranceIds = [...matchesByUtterance.keys()];
 
-    const utteranceMap = getUtteranceMap(utteranceIds);
+    const utteranceMap = getUtteranceMap(db, utteranceIds);
 
     // -----------------------------------------------------
     // Build concordance results.
-    //
-    // Context is only generated for the small number of
-    // results on the current page.
     // -----------------------------------------------------
 
     const contextStart = Date.now();
 
-    const paginatedResults = [];
+    const tokenCache = new Map<number, ConcordanceToken[]>();
 
-    const tokenCache = new Map();
-
-    for (const [utteranceId, matches] of matchesByUtterance) {
-      const utterance = utteranceMap.get(utteranceId);
-
-      if (!utterance) {
-        continue;
-      }
-
-      let tokens = tokenCache.get(utteranceId);
-
-      if (!tokens) {
-        tokens = getUtteranceWords(utteranceId);
-        tokenCache.set(utteranceId, tokens);
-      }
-
-      const positionMap = new Map();
-
-      tokens.forEach((token: CorpusToken, index: number) => {
-        positionMap.set(token.position, index);
-      });
-
-      for (const match of matches) {
-        const targetIndex = positionMap.get(match.position);
-
-        if (targetIndex === undefined) {
-          continue;
-        }
-
-        const context = buildTokenContext(tokens, targetIndex, window);
-
-        paginatedResults.push({
-          id: `${utterance.id}-${match.position}`,
-          text_id: utterance.text_id,
-          corpus_id: utterance.corpus_id,
-          filename: utterance.filename,
-          genre: utterance.genre,
-          speaker: utterance.speaker,
-          utterance_number: utterance.utterance_number,
-          trans: utterance.trans,
-          who_confidence: utterance.who_confidence,
-          target: context.target,
-          left_context: context.left_context,
-          right_context: context.right_context,
-          utterance: utterance.display_body,
-          lemma: match.lemma,
-          pos: match.pos,
-          class: match.class,
-          usas: match.usas,
-          position: match.position,
-        });
-      }
+    for (const utteranceId of matchesByUtterance.keys()) {
+      tokenCache.set(utteranceId, getUtteranceWords(db, utteranceId));
     }
 
+    const paginatedResults = buildWordConcordanceResults(
+      matchesByUtterance,
+      utteranceMap,
+      tokenCache,
+      window,
+    );
+
     console.log("Context building:", Date.now() - contextStart, "ms");
-    console.log("TOTAL SEARCH:", Date.now() - searchStart, "ms");
     // -----------------------------------------------------
     // Response
     // -----------------------------------------------------
@@ -1201,7 +983,7 @@ app.get("/api/collocations", (req, res) => {
       for (const candidate of candidates) {
         if (candidate.utterance_id !== currentUtteranceId) {
           currentUtteranceId = candidate.utterance_id;
-          tokens = getUtteranceWords(currentUtteranceId);
+          tokens = getUtteranceWords(db, currentUtteranceId);
         }
 
         const startIndex = tokens.findIndex(
@@ -1500,6 +1282,7 @@ app.get("/api/collocations/concordance", (req, res) => {
     right = 5,
     limit = 20,
     page = 1,
+    display_context_window = 5,
   } = req.query;
 
   const targetWord = String(target || "")
@@ -1516,6 +1299,13 @@ app.get("/api/collocations/concordance", (req, res) => {
   const rightWindow = Math.max(
     0,
     Math.min(5, parseInt(getQueryString(right, "3"), 10) || 0),
+  );
+  const displayContextWindow = Math.max(
+    1,
+    Math.min(
+      20,
+      parseInt(getQueryString(display_context_window, "5"), 10) || 5,
+    ),
   );
 
   const maxRows = Math.max(1, parseInt(getQueryString(limit, "20"), 10) || 20);
@@ -1607,7 +1397,7 @@ app.get("/api/collocations/concordance", (req, res) => {
       let totalMatches = 0;
 
       for (const candidate of candidates) {
-        const tokens = getUtteranceWords(candidate.utterance_id);
+        const tokens = getUtteranceWords(db, candidate.utterance_id);
 
         const startIndex = tokens.findIndex(
           (token) => token.position === candidate.position,
@@ -1629,59 +1419,114 @@ app.get("/api/collocations/concordance", (req, res) => {
         const phraseStartPosition = tokens[phraseStartIndex].position;
         const phraseEndPosition = tokens[phraseEndIndex - 1].position;
 
-        const matchedCollocates: Array<{
-          index: number;
-          distance: number;
-        }> = [];
+        const matchedCollocates: Array<{ index: number; distance: number }> =
+          [];
 
         if (relativePosition !== null) {
-          const expectedPosition =
-            relativePosition < 0
-              ? phraseStartPosition + relativePosition
-              : phraseEndPosition + relativePosition;
+          // Match the requested position by counting actual words,
+          // skipping punctuation and annotation tokens.
+          const steps = Math.abs(relativePosition);
+          let distance = 0;
 
-          const index = tokens.findIndex(
-            (token) => token.position === expectedPosition,
-          );
+          if (relativePosition < 0) {
+            let index = phraseStartIndex - 1;
 
-          if (
-            index !== -1 &&
-            tokens[index].word.toLowerCase() === collocateWord
-          ) {
-            matchedCollocates.push({
-              index,
-              distance: relativePosition,
-            });
+            while (index >= 0 && distance < steps) {
+              const tokenIndex = index;
+              const token = tokens[tokenIndex];
+              index--;
+
+              if (!/[\p{L}\p{N}]/u.test(token.word)) continue;
+              if (token.word.startsWith("--")) continue;
+
+              distance++;
+
+              if (
+                distance === steps &&
+                token.word.toLowerCase() === collocateWord
+              ) {
+                matchedCollocates.push({
+                  index: tokenIndex,
+                  distance: -distance,
+                });
+              }
+            }
+          } else {
+            let index = phraseEndIndex;
+
+            while (index < tokens.length && distance < steps) {
+              const tokenIndex = index;
+              const token = tokens[tokenIndex];
+              index++;
+
+              if (!/[\p{L}\p{N}]/u.test(token.word)) continue;
+              if (token.word.startsWith("--")) continue;
+
+              distance++;
+
+              if (
+                distance === steps &&
+                token.word.toLowerCase() === collocateWord
+              ) {
+                matchedCollocates.push({
+                  index: tokenIndex,
+                  distance,
+                });
+              }
+            }
           }
         } else {
-          for (
-            let distance = -leftWindow;
-            distance <= rightWindow;
-            distance++
-          ) {
-            if (distance === 0) continue;
+          // Match all occurrences within the selected word windows,
+          // using the same distance rules as the collocations list.
 
-            const expectedPosition =
-              distance < 0
-                ? phraseStartPosition + distance
-                : phraseEndPosition + distance;
+          // Count actual words to the left of the phrase.
+          let index = phraseStartIndex - 1;
+          let distance = 0;
 
-            const index = tokens.findIndex(
-              (token) => token.position === expectedPosition,
-            );
+          while (index >= 0 && distance < leftWindow) {
+            const tokenIndex = index;
+            const token = tokens[tokenIndex];
+            index--;
 
-            if (
-              index !== -1 &&
-              tokens[index].word.toLowerCase() === collocateWord
-            ) {
-              matchedCollocates.push({ index, distance });
+            if (!/[\p{L}\p{N}]/u.test(token.word)) continue;
+            if (token.word.startsWith("--")) continue;
+
+            distance++;
+
+            if (token.word.toLowerCase() === collocateWord) {
+              matchedCollocates.push({
+                index: tokenIndex,
+                distance: -distance,
+              });
+            }
+          }
+
+          // Count actual words to the right of the phrase.
+          index = phraseEndIndex;
+          distance = 0;
+
+          while (index < tokens.length && distance < rightWindow) {
+            const tokenIndex = index;
+            const token = tokens[tokenIndex];
+            index++;
+
+            if (!/[\p{L}\p{N}]/u.test(token.word)) continue;
+            if (token.word.startsWith("--")) continue;
+
+            distance++;
+
+            if (token.word.toLowerCase() === collocateWord) {
+              matchedCollocates.push({
+                index: tokenIndex,
+                distance,
+              });
             }
           }
         }
 
         if (matchedCollocates.length === 0) continue;
 
-        const utteranceMap = getUtteranceMap([candidate.utterance_id]);
+        const utteranceMap = getUtteranceMap(db, [candidate.utterance_id]);
         const utterance = utteranceMap.get(candidate.utterance_id);
 
         if (!utterance) continue;
@@ -1690,7 +1535,7 @@ app.get("/api/collocations/concordance", (req, res) => {
           tokens,
           phraseStartIndex,
           phraseEndIndex - phraseStartIndex,
-          Math.max(leftWindow, rightWindow),
+          displayContextWindow,
         );
 
         for (const match of matchedCollocates) {
@@ -1759,7 +1604,7 @@ app.get("/api/collocations/concordance", (req, res) => {
     const results = [];
 
     for (const match of paginatedRows) {
-      const utteranceWords = getUtteranceWords(match.utterance_id);
+      const utteranceWords = getUtteranceWords(db, match.utterance_id);
 
       const collocateIndex = utteranceWords.findIndex(
         (word) => word.position === match.collocate_position,
@@ -1770,10 +1615,10 @@ app.get("/api/collocations/concordance", (req, res) => {
       const context = buildTokenContext(
         utteranceWords,
         collocateIndex,
-        Math.max(leftWindow, rightWindow),
+        displayContextWindow,
       );
 
-      const utteranceMap = getUtteranceMap([match.utterance_id]);
+      const utteranceMap = getUtteranceMap(db, [match.utterance_id]);
       const utterance = utteranceMap.get(match.utterance_id);
 
       if (!utterance) continue;
