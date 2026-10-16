@@ -13,7 +13,7 @@ export interface KwicResult {
   filename: string;
   genre: string;
   speaker: string;
-  utterance_number: string;
+  utterance_number: number;
   trans: string | null;
   who_confidence: string | null;
   left_context: string;

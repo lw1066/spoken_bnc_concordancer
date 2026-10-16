@@ -92,7 +92,7 @@ export default function VocabularyVariants({
 
                 <span
                   className={`
-                    min-w-[1.5rem]
+                    min-w-6
                     text-center
                     px-1.5
                     py-0.5

@@ -57,7 +57,6 @@ export default function App() {
     displayedTotalMatches,
     originalTotalMatches,
     searchAllVariants,
-    setSearchAllVariants,
     showAllVariantsOption,
     handleSearchAllVariantsChange,
     resetSearch,
@@ -180,7 +179,6 @@ export default function App() {
                   collocationsSearched={collocationsSearched}
                   collocationCount={collocations.length}
                   searchAllVariants={searchAllVariants}
-                  setSearchAllVariants={setSearchAllVariants}
                   showAllVariantsOption={showAllVariantsOption}
                   handleSearchAllVariantsChange={handleSearchAllVariantsChange}
                 />

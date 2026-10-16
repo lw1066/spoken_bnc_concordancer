@@ -207,6 +207,7 @@ export default function useCorpusSearch() {
       params.set("right", String(collocationRight));
       params.set("limit", String(limit));
       params.set("page", String(requestedPage));
+      params.set("display_context_window", String(windowSize));
 
       // Pass the selected variant's POS and class to the backend.
       if (selectedWords.length === 1) {
@@ -509,7 +510,6 @@ export default function useCorpusSearch() {
     minCollocationFrequency,
     updateMinCollocationFrequency,
     searchAllVariants,
-    setSearchAllVariants,
     showAllVariantsOption,
     handleSearchAllVariantsChange,
     resetSearch,

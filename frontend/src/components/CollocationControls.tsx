@@ -12,7 +12,6 @@ interface CollocationControlsProps {
   collocationsSearched: boolean;
   collocationCount: number;
   searchAllVariants: boolean;
-  setSearchAllVariants: (value: boolean) => void;
   showAllVariantsOption: boolean;
   handleSearchAllVariantsChange: (checked: boolean) => void;
 }
@@ -31,7 +30,6 @@ export default function CollocationControls({
   collocationsSearched,
   collocationCount,
   searchAllVariants,
-  setSearchAllVariants,
   showAllVariantsOption,
   handleSearchAllVariantsChange,
 }: CollocationControlsProps) {
