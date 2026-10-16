@@ -47,3 +47,14 @@ export function findPhraseOccurrenceAt(
     endIndexExclusive: tokenIndex,
   };
 }
+
+// Keep apostrophes inside words, but treat other punctuation
+// as separate tokens. For example: "four? no" ->
+// ["four", "?", "no"].
+export function tokenizePhrase(query: string): string[] {
+  return (
+    String(query)
+      .trim()
+      .match(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*|[^\s]/gu) || []
+  );
+}

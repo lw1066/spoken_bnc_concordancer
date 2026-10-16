@@ -3,15 +3,13 @@ import cors from "cors";
 import Database from "better-sqlite3";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { findPhraseOccurrenceAt } from "./searchHelpers.ts";
-import {
-  buildTokenContext,
-  buildWordConcordanceResults,
-  type ConcordanceToken,
-} from "./concordanceHelpers.ts";
-import { getUtteranceMap, getUtteranceWords } from "./databaseHelpers.ts";
-
-import type { CorpusToken, UtteranceRow } from "./databaseHelpers.ts";
+import { findPhraseOccurrenceAt, tokenizePhrase } from "./searchHelpers.ts";
+import { getUtteranceWords } from "./databaseHelpers.ts";
+import type { CorpusToken } from "./databaseHelpers.ts";
+import { searchPhrase } from "./phraseSearchService.ts";
+import { searchWords } from "./wordSearchService.ts";
+import { searchCollocationConcordance } from "./collocationConcordanceService.ts";
+import { searchLinguistic } from "./linguisticSearchService.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,55 +25,15 @@ const db = new Database(path.join(__dirname, "..", "bnc_corpus.db"));
 // ---------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------
-
-interface SelectedWord {
-  word: string;
-  pos: string | null;
-  wordClass: string | null;
-}
-
 interface WordSearchCondition {
   sql: string;
   params: string[];
-}
-
-interface UniqueWord {
-  word: string;
-  pos: string | null;
-  wordClass: string | null;
-  count: number;
-}
-
-interface CollocationMatch {
-  utterance_id: number;
-  target_position: number;
-  collocate_position: number;
-  collocate_word: string;
 }
 
 interface CollocationRow {
   word: string;
   frequency: number;
   [position: string]: string | number;
-}
-
-interface CountRow {
-  count: number;
-}
-
-interface MatchingWordRow {
-  utterance_id: number;
-  position: number;
-  word: string;
-  lemma: string | null;
-  pos: string | null;
-  class: string | null;
-  usas: string | null;
-}
-
-interface PhraseCandidate {
-  utterance_id: number;
-  position: number;
 }
 
 /**
@@ -165,80 +123,6 @@ function getQueryString(value: unknown, fallback: string): string {
   return typeof value === "string" ? value : fallback;
 }
 
-function isPunctuationToken(token: CorpusToken): boolean {
-  return (
-    String(token.lemma || "").toUpperCase() === "PUNC" ||
-    /^Y/.test(String(token.pos || "").toUpperCase())
-  );
-}
-
-// Keep apostrophes inside words, but treat other punctuation
-// as separate tokens. For example: "four? no" ->
-// ["four", "?", "no"].
-function tokenizePhrase(query: string): string[] {
-  return (
-    String(query)
-      .trim()
-      .match(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*|[^\s]/gu) || []
-  );
-}
-
-function buildPhraseContext(
-  tokens: CorpusToken[],
-  startIndex: number,
-  phraseLength: number,
-  window: number,
-) {
-  const endIndex = startIndex + phraseLength;
-
-  return {
-    left_context: tokens
-      .slice(Math.max(0, startIndex - window), startIndex)
-      .map((token) => token.word)
-      .join(" "),
-    target: tokens
-      .slice(startIndex, endIndex)
-      .map((token) => token.word)
-      .join(" "),
-    right_context: tokens
-      .slice(endIndex, endIndex + window)
-      .map((token) => token.word)
-      .join(" "),
-  };
-}
-
-/**
- * Parse selected vocabulary variants from filter_words.
- */
-
-function getSelectedWords(filterWords: unknown): SelectedWord[] {
-  if (!filterWords) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(String(filterWords));
-
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return (parsed as unknown[]).filter(
-      (variant): variant is SelectedWord =>
-        typeof variant === "object" &&
-        variant !== null &&
-        "word" in variant &&
-        typeof variant.word === "string" &&
-        "pos" in variant &&
-        (typeof variant.pos === "string" || variant.pos === null) &&
-        "wordClass" in variant &&
-        (typeof variant.wordClass === "string" || variant.wordClass === null),
-    );
-  } catch {
-    return [];
-  }
-}
-
 app.get("/", (req, res) => {
   res.json({
     status: "success",
@@ -281,6 +165,7 @@ app.get("/api/search", (req, res) => {
     // -----------------------------------------------------
     // LINGUISTIC SEARCH
     // -----------------------------------------------------
+
     const hasLinguisticSearch =
       String(lemma).trim() ||
       String(pos).trim() ||
@@ -288,565 +173,70 @@ app.get("/api/search", (req, res) => {
       String(usas).trim();
 
     if (hasLinguisticSearch) {
-      const conditions = [];
-      const params = [];
-
-      if (String(lemma).trim()) {
-        conditions.push("LOWER(w.lemma) = LOWER(?)");
-        params.push(String(lemma).trim());
-      }
-
-      if (String(pos).trim()) {
-        conditions.push("LOWER(w.pos) = LOWER(?)");
-        params.push(String(pos).trim());
-      }
-
-      if (String(wordClass).trim()) {
-        conditions.push("LOWER(w.class) = LOWER(?)");
-        params.push(String(wordClass).trim());
-      }
-
-      if (String(usas).trim()) {
-        conditions.push("LOWER(w.usas) = LOWER(?)");
-        params.push(String(usas).trim());
-      }
-
-      const selectedWords = getSelectedWords(filter_words);
-
-      // -----------------------------------------------------
-      // GET WORD VARIANTS
-      // -----------------------------------------------------
-
-      let uniqueWords: UniqueWord[] = [];
-
-      if (selectedWords.length === 0) {
-        uniqueWords = db
-          .prepare(
-            `
-      SELECT
-        LOWER(w.word) AS word,
-        w.pos AS pos,
-        w.class AS wordClass,
-        COUNT(*) AS count
-      FROM words w
-      WHERE ${conditions.join(" AND ")}
-      GROUP BY LOWER(w.word), w.pos, w.class
-      ORDER BY count DESC, word ASC
-      `,
-          )
-          .all(...params) as UniqueWord[];
-      }
-
-      // -----------------------------------------------------
-      // BUILD CONDITIONS FOR ACTUAL SEARCH
-      // -----------------------------------------------------
-
-      let resultConditions;
-      let resultParams;
-
-      if (selectedWords.length > 0) {
-        const variantConditions = selectedWords.map(() => {
-          return `(LOWER(w.word) = LOWER(?) AND (
-            w.pos = ? OR (w.pos IS NULL AND ? IS NULL)
-          ))`;
-        });
-
-        resultConditions = [
-          ...conditions,
-          `(${variantConditions.join(" OR ")})`,
-        ];
-
-        const variantParams = selectedWords.flatMap((variant) => [
-          variant.word,
-          variant.pos,
-          variant.pos,
-        ]);
-
-        resultParams = [...params, ...variantParams];
-      } else {
-        resultConditions = [...conditions];
-        resultParams = [...params];
-      }
-
-      const resultWhere = resultConditions.join(" AND ");
-
-      // -----------------------------------------------------
-      // COUNT MATCHING OCCURRENCES
-      // -----------------------------------------------------
-
-      const totalRow = db
-        .prepare(
-          `
-      SELECT COUNT(*) AS count
-      FROM words w
-      WHERE ${resultWhere}
-      `,
-        )
-        .get(...resultParams) as CountRow | undefined;
-
-      const totalMatches = totalRow?.count ?? 0;
-
-      if (totalMatches === 0) {
-        return res.json({
-          status: "success",
-          total_matches: 0,
-          page: currentPage,
-          limit: resultLimit,
-          unique_words: uniqueWords,
-          results: [],
-        });
-      }
-
-      // -----------------------------------------------------
-      // FETCH ONLY CURRENT PAGE
-      // -----------------------------------------------------
-
-      const startIndex = (currentPage - 1) * resultLimit;
-
-      const matchingWords = db
-        .prepare(
-          `
-      SELECT
-        w.utterance_id,
-        w.position,
-        w.word,
-        w.lemma,
-        w.pos,
-        w.class,
-        w.usas
-      FROM words w
-      WHERE ${resultWhere}
-      ORDER BY
-        w.utterance_id,
-        w.position
-      LIMIT ? OFFSET ?
-      `,
-        )
-        .all(...resultParams, resultLimit, startIndex) as MatchingWordRow[];
-
-      if (matchingWords.length === 0) {
-        return res.json({
-          status: "success",
-          total_matches: totalMatches,
-          page: currentPage,
-          limit: resultLimit,
-          unique_words: uniqueWords,
-          results: [],
-        });
-      }
-
-      // -----------------------------------------------------
-      // GROUP CURRENT PAGE BY UTTERANCE
-      // -----------------------------------------------------
-
-      const matchesByUtterance = new Map<number, MatchingWordRow[]>();
-
-      for (const match of matchingWords) {
-        const existingMatches = matchesByUtterance.get(match.utterance_id);
-
-        if (existingMatches) {
-          existingMatches.push(match);
-        } else {
-          matchesByUtterance.set(match.utterance_id, [match]);
-        }
-      }
-
-      // -----------------------------------------------------
-      // GET UTTERANCE METADATA
-      // -----------------------------------------------------
-
-      const utteranceIds = [...matchesByUtterance.keys()];
-
-      const utteranceMap = getUtteranceMap(db, utteranceIds);
-
-      // BUILD CONCORDANCE RESULTS
-
-      const tokenCache = new Map<number, ConcordanceToken[]>();
-
-      for (const utteranceId of matchesByUtterance.keys()) {
-        tokenCache.set(utteranceId, getUtteranceWords(db, utteranceId));
-      }
-
-      const paginatedResults = buildWordConcordanceResults(
-        matchesByUtterance,
-        utteranceMap,
-        tokenCache,
+      const outcome = searchLinguistic(db, {
+        lemma: String(lemma).trim(),
+        pos: String(pos).trim(),
+        wordClass: String(wordClass).trim(),
+        usas: String(usas).trim(),
+        filterWords: filter_words,
+        page: currentPage,
+        limit: resultLimit,
         window,
-      );
-
-      // -----------------------------------------------------
-      // RESPONSE
-      // -----------------------------------------------------
+      });
 
       return res.json({
         status: "success",
-        total_matches: totalMatches,
-        page: currentPage,
-        limit: resultLimit,
-        unique_words: uniqueWords,
-        results: paginatedResults,
+        ...outcome,
       });
     }
 
-    // -----------------------------------------------------
-    // PHRASE SEARCH
-    // -----------------------------------------------------
-
     if (String(search_type) === "phrase") {
-      const cleanQuery = String(query).trim();
-
-      if (!cleanQuery) {
-        return res.status(400).json({
-          error: "Provide a phrase to search for.",
-        });
-      }
-
-      const queryTokens = tokenizePhrase(cleanQuery);
-
-      const phraseTokens = queryTokens.filter((token) =>
-        /[\p{L}\p{N}]/u.test(token),
+      const outcome = searchPhrase(
+        db,
+        String(query),
+        currentPage,
+        resultLimit,
+        window,
       );
 
-      if (phraseTokens.length === 0) {
+      if (!outcome.success) {
         return res.status(400).json({
-          error: "Enter at least one word in the phrase.",
+          error: outcome.error,
         });
       }
-
-      const firstToken = phraseTokens[0].toLowerCase();
-      const offset = (currentPage - 1) * resultLimit;
-
-      let totalMatches = 0;
-      const pageMatches = [];
-
-      const candidates = db
-        .prepare(
-          `
-        SELECT utterance_id, position
-        FROM words
-        WHERE LOWER(word) = ?
-        ORDER BY utterance_id, position
-      `,
-        )
-        .iterate(firstToken) as Iterable<PhraseCandidate>;
-
-      let currentUtteranceId = null;
-      let tokens: CorpusToken[] = [];
-
-      for (const candidate of candidates) {
-        if (candidate.utterance_id !== currentUtteranceId) {
-          currentUtteranceId = candidate.utterance_id;
-          tokens = getUtteranceWords(db, currentUtteranceId);
-        }
-
-        const startIndex = tokens.findIndex(
-          (token) => token.position === candidate.position,
-        );
-
-        if (startIndex === -1) continue;
-
-        const occurrence = findPhraseOccurrenceAt(
-          tokens,
-          startIndex,
-          phraseTokens,
-        );
-
-        if (!occurrence) continue;
-
-        const phraseEndIndex = occurrence.endIndexExclusive;
-
-        totalMatches++;
-
-        if (totalMatches > offset && pageMatches.length < resultLimit) {
-          pageMatches.push({
-            utterance_id: currentUtteranceId,
-            startIndex,
-            endIndex: phraseEndIndex,
-            tokens,
-          });
-        }
-      }
-
-      const utteranceIds = [
-        ...new Set(pageMatches.map((match) => match.utterance_id)),
-      ];
-      const utteranceMap = getUtteranceMap(db, utteranceIds);
-
-      const results = pageMatches.map((match) => {
-        const utterance = utteranceMap.get(match.utterance_id);
-        const phraseLength = match.endIndex - match.startIndex;
-        const context = buildPhraseContext(
-          match.tokens,
-          match.startIndex,
-          phraseLength,
-          window,
-        );
-
-        return {
-          id: `${match.utterance_id}-${match.tokens[match.startIndex].position}-phrase`,
-          text_id: utterance?.text_id,
-          corpus_id: utterance?.corpus_id,
-          filename: utterance?.filename,
-          genre: utterance?.genre,
-          speaker: utterance?.speaker,
-          utterance_number: utterance?.utterance_number,
-          trans: utterance?.trans,
-          who_confidence: utterance?.who_confidence,
-          target: context.target,
-          left_context: context.left_context,
-          right_context: context.right_context,
-          utterance: utterance?.display_body,
-          position: match.tokens[match.startIndex].position,
-        };
-      });
 
       return res.json({
         status: "success",
         search_type: "phrase",
-        total_matches: totalMatches,
-        page: currentPage,
-        limit: resultLimit,
+        total_matches: outcome.total_matches,
+        page: outcome.page,
+        limit: outcome.limit,
         unique_words: [],
-        results,
+        results: outcome.results,
       });
     }
 
-    // -----------------------------------------------------
-    // WORD SEARCH
-    // -----------------------------------------------------
-
-    const cleanQuery = String(query).trim();
-
-    if (!cleanQuery) {
-      return res.status(400).json({
-        error:
-          "Provide 'query' for a word search, or 'lemma', 'pos', 'class', or 'usas' for a linguistic search.",
-      });
-    }
-
-    const wordSearch = buildWordSearch(cleanQuery);
-
-    if (!wordSearch) {
-      return res.status(400).json({
-        error: "Word searches support zero or one '*' wildcard.",
-      });
-    }
-
-    const selectedWords = getSelectedWords(filter_words);
-    console.log("WORD QUERY:", cleanQuery);
-    console.log("SELECTED WORDS:", selectedWords);
-    // -----------------------------------------------------
-    // Get vocabulary variants.
-    //
-    // This query ALWAYS uses the original search pattern,
-    // never filter_words.
-    //
-    // This means the variant buttons remain stable when
-    // the user selects a word.
-    //
-    // GROUP BY is done by SQLite rather than loading every
-    // matching token into Node.js.
-    // -----------------------------------------------------
-
-    let uniqueWords: UniqueWord[] = [];
-
-    if (selectedWords.length === 0) {
-      const variantsStart = Date.now();
-
-      uniqueWords = db
-        .prepare(
-          `
-    SELECT
-      LOWER(w.word) AS word,
-      w.pos AS pos,
-      w.class AS wordClass,
-      COUNT(*) AS count
-    FROM words w
-    WHERE ${wordSearch.sql}
-    GROUP BY LOWER(w.word), w.pos, w.class
-    ORDER BY count DESC, word ASC
-    `,
-        )
-        .all(...wordSearch.params) as UniqueWord[];
-
-      console.log("Vocabulary variants:", Date.now() - variantsStart, "ms");
-    }
-
-    // -----------------------------------------------------
-    // Build the conditions for the actual concordance
-    // search.
-    //
-    // If no variants are selected, use the original
-    // wildcard condition.
-    //
-    // If variants are selected, add an exact word filter.
-    // SQLite therefore only retrieves matching tokens.
-    // -----------------------------------------------------
-
-    let resultConditions;
-    let resultParams;
-
-    if (selectedWords.length > 0) {
-      const variantConditions = selectedWords.map(
-        () => `(
-      LOWER(w.word) = LOWER(?)
-      AND (w.pos = ? OR (w.pos IS NULL AND ? IS NULL))
-      AND (w.class = ? OR (w.class IS NULL AND ? IS NULL))
-    )`,
-      );
-
-      resultConditions = [`(${variantConditions.join(" OR ")})`];
-
-      resultParams = selectedWords.flatMap((variant) => [
-        variant.word,
-        variant.pos,
-        variant.pos,
-        variant.wordClass,
-        variant.wordClass,
-      ]);
-    } else {
-      resultConditions = [wordSearch.sql];
-      resultParams = [...wordSearch.params];
-    }
-
-    const resultWhere = resultConditions.join(" AND ");
-    console.log("RESULT WHERE:", resultWhere);
-    console.log("RESULT PARAMS:", resultParams);
-
-    // -----------------------------------------------------
-    // Count the actual matching occurrences.
-    //
-    // This is cheap because SQLite performs the COUNT.
-    // No concordance/context data is created yet.
-    // -----------------------------------------------------
-
-    const countStart = Date.now();
-
-    const totalRow = db
-      .prepare(
-        `
-        SELECT COUNT(*) AS count
-        FROM words w
-        WHERE ${resultWhere}
-        `,
-      )
-      .get(...resultParams) as CountRow | undefined;
-
-    const totalMatches = totalRow?.count ?? 0;
-
-    console.log("COUNT query:", Date.now() - countStart, "ms");
-
-    if (totalMatches === 0) {
-      return res.json({
-        status: "success",
-        total_matches: 0,
-        page: currentPage,
-        limit: resultLimit,
-        unique_words: uniqueWords,
-        results: [],
-      });
-    }
-
-    // -----------------------------------------------------
-    // Fetch ONLY the matching tokens needed for the
-    // current page.
-    //
-    // We don't build contexts for 50,000 matches anymore.
-    // SQLite finds the correct page first.
-    // -----------------------------------------------------
-
-    const startIndex = (currentPage - 1) * resultLimit;
-
-    const matchesStart = Date.now();
-
-    const matchingWords = db
-      .prepare(
-        `
-        SELECT
-          w.utterance_id,
-          w.position,
-          w.word,
-          w.lemma,
-          w.pos,
-          w.class,
-          w.usas
-        FROM words w
-        WHERE ${resultWhere}
-        ORDER BY
-          w.utterance_id,
-          w.position
-        LIMIT ? OFFSET ?
-        `,
-      )
-      .all(...resultParams, resultLimit, startIndex) as MatchingWordRow[];
-
-    console.log("Matching words query:", Date.now() - matchesStart, "ms");
-
-    if (matchingWords.length === 0) {
-      return res.json({
-        status: "success",
-        total_matches: totalMatches,
-        page: currentPage,
-        limit: resultLimit,
-        unique_words: uniqueWords,
-        results: [],
-      });
-    }
-
-    // -----------------------------------------------------
-    // Group the current page's matches by utterance.
-    //
-    // There may be several matching tokens in the same
-    // utterance.
-    // -----------------------------------------------------
-
-    const matchesByUtterance = new Map<number, MatchingWordRow[]>();
-
-    for (const match of matchingWords) {
-      const existingMatches = matchesByUtterance.get(match.utterance_id);
-
-      if (existingMatches) {
-        existingMatches.push(match);
-      } else {
-        matchesByUtterance.set(match.utterance_id, [match]);
-      }
-    }
-
-    const utteranceIds = [...matchesByUtterance.keys()];
-
-    const utteranceMap = getUtteranceMap(db, utteranceIds);
-
-    // -----------------------------------------------------
-    // Build concordance results.
-    // -----------------------------------------------------
-
-    const contextStart = Date.now();
-
-    const tokenCache = new Map<number, ConcordanceToken[]>();
-
-    for (const utteranceId of matchesByUtterance.keys()) {
-      tokenCache.set(utteranceId, getUtteranceWords(db, utteranceId));
-    }
-
-    const paginatedResults = buildWordConcordanceResults(
-      matchesByUtterance,
-      utteranceMap,
-      tokenCache,
+    const outcome = searchWords(db, {
+      query: String(query ?? ""),
+      page: currentPage,
+      limit: resultLimit,
       window,
-    );
+      filterWords: filter_words,
+    });
 
-    console.log("Context building:", Date.now() - contextStart, "ms");
-    // -----------------------------------------------------
-    // Response
-    // -----------------------------------------------------
+    if (!outcome.success) {
+      return res.status(400).json({
+        error: outcome.error,
+      });
+    }
 
     return res.json({
       status: "success",
-      total_matches: totalMatches,
-      page: currentPage,
-      limit: resultLimit,
-      unique_words: uniqueWords,
-      results: paginatedResults,
+      total_matches: outcome.total_matches,
+      page: outcome.page,
+      limit: outcome.limit,
+      unique_words: outcome.unique_words,
+      results: outcome.results,
     });
   } catch (error) {
     console.error("Search error:", error);
@@ -970,7 +360,10 @@ app.get("/api/collocations", (req, res) => {
       ORDER BY utterance_id, position
       `,
         )
-        .iterate(firstToken) as Iterable<PhraseCandidate>;
+        .iterate(firstToken) as Iterable<{
+        utterance_id: number;
+        position: number;
+      }>;
 
       const collocateCounts = new Map<
         string,
@@ -1272,389 +665,80 @@ app.get("/api/collocations", (req, res) => {
 // ---------------------------------------------------------
 
 app.get("/api/collocations/concordance", (req, res) => {
-  const {
-    target,
-    collocate,
-    position,
-    pos,
-    class: wordClass,
-    left = 5,
-    right = 5,
-    limit = 20,
-    page = 1,
-    display_context_window = 5,
-  } = req.query;
-
-  const targetWord = String(target || "")
+  const target = String(req.query.target ?? "")
     .trim()
     .toLowerCase();
-  const collocateWord = String(collocate || "")
+  const collocate = String(req.query.collocate ?? "")
     .trim()
     .toLowerCase();
 
-  const leftWindow = Math.max(
-    0,
-    Math.min(5, parseInt(getQueryString(left, "3"), 10) || 0),
+  const positionParam = req.query.position;
+  const pos = req.query.pos;
+  const wordClass = req.query.class;
+
+  const leftWindow = Math.min(5, Math.max(0, Number(req.query.left ?? 5)));
+
+  const rightWindow = Math.min(5, Math.max(0, Number(req.query.right ?? 5)));
+
+  const limit = Math.max(1, Number(req.query.limit ?? 20));
+  const page = Math.max(1, Number(req.query.page ?? 1));
+
+  const displayContextWindow = Math.min(
+    20,
+    Math.max(1, Number(req.query.display_context_window ?? 5)),
   );
-  const rightWindow = Math.max(
-    0,
-    Math.min(5, parseInt(getQueryString(right, "3"), 10) || 0),
-  );
-  const displayContextWindow = Math.max(
-    1,
-    Math.min(
-      20,
-      parseInt(getQueryString(display_context_window, "5"), 10) || 5,
-    ),
-  );
 
-  const maxRows = Math.max(1, parseInt(getQueryString(limit, "20"), 10) || 20);
-  const pageNum = Math.max(1, parseInt(getQueryString(page, "1"), 10) || 1);
-
-  const hasPosition =
-    position !== undefined &&
-    position !== null &&
-    String(position).trim() !== "";
-
-  const positionValue = getQueryString(position, "");
-  const relativePosition =
-    hasPosition && positionValue !== "" ? parseInt(positionValue, 10) : null;
-
-  if (!targetWord || !collocateWord) {
+  if (!target || !collocate) {
     return res.status(400).json({
-      error: "target and collocate are required",
+      error: "Both target and collocate are required",
     });
   }
 
-  if (
-    hasPosition &&
-    (relativePosition === null ||
-      Number.isNaN(relativePosition) ||
-      relativePosition === 0 ||
+  let relativePosition: number | null = null;
+
+  if (positionParam !== undefined && positionParam !== "") {
+    relativePosition = Number(positionParam);
+
+    if (
+      !Number.isInteger(relativePosition) ||
       relativePosition < -5 ||
-      relativePosition > 5)
-  ) {
-    return res.status(400).json({
-      error: "position must be between -5 and -1 or 1 and 5",
-    });
+      relativePosition > 5 ||
+      relativePosition === 0
+    ) {
+      return res.status(400).json({
+        error: "Position must be an integer from -5 to -1 or 1 to 5",
+      });
+    }
+  }
+
+  // Preserve the original phrase-target validation and its HTTP 400 response.
+  if (target.includes(" ")) {
+    const phraseTokens = tokenizePhrase(target).filter((token) =>
+      /[\p{L}\p{N}]/u.test(token),
+    );
+
+    if (phraseTokens.length < 2) {
+      return res.status(400).json({
+        error: "A phrase target must contain at least two words",
+      });
+    }
   }
 
   try {
-    const conditions = ["LOWER(target.word) = ?", "LOWER(collocate.word) = ?"];
-    const parameters: (string | number | null)[] = [targetWord, collocateWord];
-
-    if (pos) {
-      conditions.push("target.pos = ?");
-      parameters.push(String(pos));
-    }
-
-    if (wordClass) {
-      conditions.push("target.class = ?");
-      parameters.push(String(wordClass));
-    }
-
-    if (hasPosition) {
-      conditions.push("collocate.position = target.position + ?");
-      parameters.push(relativePosition);
-    } else {
-      conditions.push(`
-        collocate.position > target.position - ?
-        AND collocate.position < target.position + ?
-      `);
-      parameters.push(leftWindow + 1);
-      parameters.push(rightWindow + 1);
-    }
-
-    // Phrase target branch
-    if (targetWord.includes(" ")) {
-      const phraseTokens = tokenizePhrase(targetWord).filter((token) =>
-        /[\p{L}\p{N}]/u.test(token),
-      );
-
-      if (phraseTokens.length < 2) {
-        return res.status(400).json({
-          error: "A phrase target must contain at least two words",
-        });
-      }
-
-      const firstToken = phraseTokens[0].toLowerCase();
-
-      const candidates = db
-        .prepare(
-          `
-          SELECT utterance_id, position
-          FROM words
-          WHERE LOWER(word) = ?
-          ORDER BY utterance_id, position
-        `,
-        )
-        .iterate(firstToken) as Iterable<{
-        utterance_id: number;
-        position: number;
-      }>;
-
-      const results = [];
-      let totalMatches = 0;
-
-      for (const candidate of candidates) {
-        const tokens = getUtteranceWords(db, candidate.utterance_id);
-
-        const startIndex = tokens.findIndex(
-          (token) => token.position === candidate.position,
-        );
-
-        if (startIndex === -1) continue;
-
-        const occurrence = findPhraseOccurrenceAt(
-          tokens,
-          startIndex,
-          phraseTokens,
-        );
-
-        if (!occurrence) continue;
-
-        const phraseStartIndex = occurrence.startIndex;
-        const phraseEndIndex = occurrence.endIndexExclusive;
-
-        const phraseStartPosition = tokens[phraseStartIndex].position;
-        const phraseEndPosition = tokens[phraseEndIndex - 1].position;
-
-        const matchedCollocates: Array<{ index: number; distance: number }> =
-          [];
-
-        if (relativePosition !== null) {
-          // Match the requested position by counting actual words,
-          // skipping punctuation and annotation tokens.
-          const steps = Math.abs(relativePosition);
-          let distance = 0;
-
-          if (relativePosition < 0) {
-            let index = phraseStartIndex - 1;
-
-            while (index >= 0 && distance < steps) {
-              const tokenIndex = index;
-              const token = tokens[tokenIndex];
-              index--;
-
-              if (!/[\p{L}\p{N}]/u.test(token.word)) continue;
-              if (token.word.startsWith("--")) continue;
-
-              distance++;
-
-              if (
-                distance === steps &&
-                token.word.toLowerCase() === collocateWord
-              ) {
-                matchedCollocates.push({
-                  index: tokenIndex,
-                  distance: -distance,
-                });
-              }
-            }
-          } else {
-            let index = phraseEndIndex;
-
-            while (index < tokens.length && distance < steps) {
-              const tokenIndex = index;
-              const token = tokens[tokenIndex];
-              index++;
-
-              if (!/[\p{L}\p{N}]/u.test(token.word)) continue;
-              if (token.word.startsWith("--")) continue;
-
-              distance++;
-
-              if (
-                distance === steps &&
-                token.word.toLowerCase() === collocateWord
-              ) {
-                matchedCollocates.push({
-                  index: tokenIndex,
-                  distance,
-                });
-              }
-            }
-          }
-        } else {
-          // Match all occurrences within the selected word windows,
-          // using the same distance rules as the collocations list.
-
-          // Count actual words to the left of the phrase.
-          let index = phraseStartIndex - 1;
-          let distance = 0;
-
-          while (index >= 0 && distance < leftWindow) {
-            const tokenIndex = index;
-            const token = tokens[tokenIndex];
-            index--;
-
-            if (!/[\p{L}\p{N}]/u.test(token.word)) continue;
-            if (token.word.startsWith("--")) continue;
-
-            distance++;
-
-            if (token.word.toLowerCase() === collocateWord) {
-              matchedCollocates.push({
-                index: tokenIndex,
-                distance: -distance,
-              });
-            }
-          }
-
-          // Count actual words to the right of the phrase.
-          index = phraseEndIndex;
-          distance = 0;
-
-          while (index < tokens.length && distance < rightWindow) {
-            const tokenIndex = index;
-            const token = tokens[tokenIndex];
-            index++;
-
-            if (!/[\p{L}\p{N}]/u.test(token.word)) continue;
-            if (token.word.startsWith("--")) continue;
-
-            distance++;
-
-            if (token.word.toLowerCase() === collocateWord) {
-              matchedCollocates.push({
-                index: tokenIndex,
-                distance,
-              });
-            }
-          }
-        }
-
-        if (matchedCollocates.length === 0) continue;
-
-        const utteranceMap = getUtteranceMap(db, [candidate.utterance_id]);
-        const utterance = utteranceMap.get(candidate.utterance_id);
-
-        if (!utterance) continue;
-
-        const context = buildPhraseContext(
-          tokens,
-          phraseStartIndex,
-          phraseEndIndex - phraseStartIndex,
-          displayContextWindow,
-        );
-
-        for (const match of matchedCollocates) {
-          totalMatches++;
-
-          results.push({
-            id: `${utterance.id}-${phraseStartPosition}-${tokens[match.index].position}`,
-            text_id: utterance.text_id,
-            corpus_id: utterance.corpus_id,
-            filename: utterance.filename,
-            genre: utterance.genre,
-            speaker: utterance.speaker,
-            utterance_number: utterance.utterance_number,
-            trans: utterance.trans,
-            who_confidence: utterance.who_confidence,
-            left_context: context.left_context,
-            target: context.target,
-            right_context: context.right_context,
-            utterance: utterance.display_body,
-            position: match.distance,
-            collocation_target: targetWord,
-            collocation_word: collocateWord,
-          });
-        }
-      }
-
-      const offset = (pageNum - 1) * maxRows;
-      const paginatedResults = results.slice(offset, offset + maxRows);
-
-      return res.json({
-        status: "success",
-        target: targetWord,
-        collocate: collocateWord,
-        position: hasPosition ? relativePosition : null,
-        left_window: leftWindow,
-        right_window: rightWindow,
-        total_matches: totalMatches,
-        page: pageNum,
-        limit: maxRows,
-        results: paginatedResults,
-      });
-    }
-
-    // Single-word target branch — retain the existing SQL approach
-    const matchingRows = db
-      .prepare(
-        `
-        SELECT
-          target.utterance_id,
-          target.position AS target_position,
-          collocate.position AS collocate_position,
-          collocate.word AS collocate_word
-        FROM words target
-        JOIN words collocate
-          ON collocate.utterance_id = target.utterance_id
-        WHERE ${conditions.join(" AND ")}
-        ORDER BY target.utterance_id, target.position
-      `,
-      )
-      .all(...parameters) as CollocationMatch[];
-
-    const totalMatches = matchingRows.length;
-    const offset = (pageNum - 1) * maxRows;
-    const paginatedRows = matchingRows.slice(offset, offset + maxRows);
-
-    const results = [];
-
-    for (const match of paginatedRows) {
-      const utteranceWords = getUtteranceWords(db, match.utterance_id);
-
-      const collocateIndex = utteranceWords.findIndex(
-        (word) => word.position === match.collocate_position,
-      );
-
-      if (collocateIndex === -1) continue;
-
-      const context = buildTokenContext(
-        utteranceWords,
-        collocateIndex,
-        displayContextWindow,
-      );
-
-      const utteranceMap = getUtteranceMap(db, [match.utterance_id]);
-      const utterance = utteranceMap.get(match.utterance_id);
-
-      if (!utterance) continue;
-
-      results.push({
-        id: `${utterance.id}-${match.target_position}-${match.collocate_position}`,
-        text_id: utterance.text_id,
-        corpus_id: utterance.corpus_id,
-        filename: utterance.filename,
-        genre: utterance.genre,
-        speaker: utterance.speaker,
-        utterance_number: utterance.utterance_number,
-        trans: utterance.trans,
-        who_confidence: utterance.who_confidence,
-        left_context: context.left_context,
-        target: context.target,
-        right_context: context.right_context,
-        utterance: utterance.display_body,
-        position: match.collocate_position - match.target_position,
-        collocation_target: targetWord,
-        collocation_word: collocateWord,
-      });
-    }
-
-    return res.json({
-      status: "success",
-      target: targetWord,
-      collocate: collocateWord,
-      position: hasPosition ? relativePosition : null,
-      left_window: leftWindow,
-      right_window: rightWindow,
-      total_matches: totalMatches,
-      page: pageNum,
-      limit: maxRows,
-      results,
+    const result = searchCollocationConcordance(db, {
+      target,
+      collocate,
+      position: relativePosition,
+      pos,
+      wordClass,
+      leftWindow,
+      rightWindow,
+      page,
+      limit,
+      displayContextWindow,
     });
+
+    return res.json(result);
   } catch (error) {
     console.error("Collocation concordance error:", error);
 
