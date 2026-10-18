@@ -109,11 +109,13 @@ export default function App() {
 
   const validationMessage = !trimmedQuery
     ? ""
-    : searchType === "word" && trimmedQuery.split(/\s+/).length > 1
-      ? "Please enter a single word."
-      : searchType === "phrase" && phraseWordCount < 2
-        ? "Please enter 2 or more words."
-        : "";
+    : searchType === "phrase" && trimmedQuery.includes("*")
+      ? "No wildcards (*) in phrase searches."
+      : searchType === "word" && trimmedQuery.split(/\s+/).length > 1
+        ? "Word search accepts a single word."
+        : searchType === "phrase" && phraseWordCount < 2
+          ? "Phrase search requires 2 or more words."
+          : "";
 
   const resultsHeading = collocationFilter
     ? `Results for "${

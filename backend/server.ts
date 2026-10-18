@@ -90,6 +90,14 @@ app.get("/api/search", (req, res) => {
 
     const searchQuery = String(query ?? "").trim();
 
+    // Reject wildcards in phrase searches.
+    if (String(search_type) === "phrase" && searchQuery.includes("*")) {
+      return res.status(400).json({
+        success: false,
+        error: "Wildcards (*) are not allowed in phrase searches.",
+      });
+    }
+
     if (
       String(search_type) === "word" &&
       searchQuery.split(/\s+/).filter(Boolean).length > 1
