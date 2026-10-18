@@ -3,13 +3,13 @@ import cors from "cors";
 import Database from "better-sqlite3";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { findPhraseOccurrenceAt, tokenizePhrase } from "./searchHelpers.ts";
-import { getUtteranceWords } from "./databaseHelpers.ts";
-import type { CorpusToken } from "./databaseHelpers.ts";
+import { tokenizePhrase } from "./searchHelpers.ts";
 import { searchPhrase } from "./phraseSearchService.ts";
 import { searchWords } from "./wordSearchService.ts";
 import { searchCollocationConcordance } from "./collocationConcordanceService.ts";
 import { searchLinguistic } from "./linguisticSearchService.ts";
+import { buildWordSearch } from "./wordSearchHelpers.ts";
+import { searchPhraseCollocations } from "./phraseCollocationService.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,101 +22,10 @@ app.use(express.json());
 
 const db = new Database(path.join(__dirname, "..", "bnc_corpus.db"));
 
-// ---------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------
-interface WordSearchCondition {
-  sql: string;
-  params: string[];
-}
-
 interface CollocationRow {
   word: string;
   frequency: number;
   [position: string]: string | number;
-}
-
-/**
- * Build a SQL condition for a word search.
- *
- * Supported:
- *
- * honestly  -> exact match
- * bloody*   -> starts with bloody
- * *ing      -> ends with ing
- * *core*    -> contains core
- */
-
-function buildWordSearch(query: string): WordSearchCondition | null {
-  const value = String(query).trim().toLowerCase();
-
-  if (!value) {
-    return null;
-  }
-
-  const starCount = (value.match(/\*/g) || []).length;
-
-  // No wildcard = exact word
-  if (starCount === 0) {
-    return {
-      sql: "LOWER(w.word) = ?",
-      params: [value],
-    };
-  }
-
-  // Two wildcards are allowed only when they are
-  // at the beginning and end: *core*
-  if (starCount === 2) {
-    if (value.startsWith("*") && value.endsWith("*")) {
-      const middle = value.slice(1, -1);
-
-      if (!middle) {
-        return null;
-      }
-
-      return {
-        sql: "LOWER(w.word) LIKE ?",
-        params: [`%${middle}%`],
-      };
-    }
-
-    return null;
-  }
-
-  // Only one wildcard is supported from here
-  if (starCount !== 1) {
-    return null;
-  }
-
-  // *core
-  if (value.startsWith("*")) {
-    const ending = value.slice(1);
-
-    if (!ending) {
-      return null;
-    }
-
-    return {
-      sql: "LOWER(w.word) LIKE ?",
-      params: [`%${ending}`],
-    };
-  }
-
-  // core*
-  if (value.endsWith("*")) {
-    const beginning = value.slice(0, -1);
-
-    if (!beginning) {
-      return null;
-    }
-
-    return {
-      sql: "LOWER(w.word) LIKE ?",
-      params: [`${beginning}%`],
-    };
-  }
-
-  return null;
 }
 
 function getQueryString(value: unknown, fallback: string): string {
@@ -131,8 +40,6 @@ app.get("/", (req, res) => {
 });
 
 app.get("/api/search", (req, res) => {
-  const searchStart = Date.now();
-
   try {
     const {
       query = "",
@@ -162,10 +69,7 @@ app.get("/api/search", (req, res) => {
       parseInt(getQueryString(page, "1"), 10) || 1,
     );
 
-    // -----------------------------------------------------
-    // LINGUISTIC SEARCH
-    // -----------------------------------------------------
-
+    // Use linguistic search when any linguistic filter is supplied.
     const hasLinguisticSearch =
       String(lemma).trim() ||
       String(pos).trim() ||
@@ -258,15 +162,7 @@ app.get("/api/collocations", (req, res) => {
     limit = 100,
   } = req.query;
 
-  console.log("COLLOCATION QUERY:", query);
-  console.log("LEFT WINDOW:", left);
-  console.log("RIGHT WINDOW:", right);
-
   try {
-    // -------------------------------------------------------
-    // Validate query
-    // -------------------------------------------------------
-
     const cleanQuery = String(query || "").trim();
 
     if (!cleanQuery) {
@@ -274,13 +170,6 @@ app.get("/api/collocations", (req, res) => {
         error: "Provide a query for the target word.",
       });
     }
-
-    // -------------------------------------------------------
-    // Validate window sizes
-    //
-    // Default: 3 words
-    // Maximum: 5 words
-    // -------------------------------------------------------
 
     const leftWindow = Number(left);
     const rightWindow = Number(right);
@@ -298,10 +187,6 @@ app.get("/api/collocations", (req, res) => {
       });
     }
 
-    // -------------------------------------------------------
-    // Validate result limit
-    // -------------------------------------------------------
-
     const resultLimit = Number(limit);
 
     if (
@@ -313,10 +198,6 @@ app.get("/api/collocations", (req, res) => {
         error: "Limit must be a whole number between 1 and 1000.",
       });
     }
-
-    // -------------------------------------------------------
-    // Validate minimum frequency
-    // -------------------------------------------------------
 
     const minFrequency = Number(min_frequency);
 
@@ -330,174 +211,30 @@ app.get("/api/collocations", (req, res) => {
       });
     }
 
-    // -------------------------------------------------------
-    // Phrase collocations
-    //
-    // Punctuation is always ignored for collocation searches.
-    // The left window is measured from the first phrase token;
-    // the right window is measured from the last phrase token.
-    // -------------------------------------------------------
-
     if (String(req.query.search_type) === "phrase") {
-      const phraseTokens = tokenizePhrase(cleanQuery).filter((token) =>
-        /[\p{L}\p{N}]/u.test(token),
+      const outcome = searchPhraseCollocations(
+        db,
+        cleanQuery,
+        leftWindow,
+        rightWindow,
+        minFrequency,
+        resultLimit,
       );
 
-      if (phraseTokens.length === 0) {
+      if ("error" in outcome) {
         return res.status(400).json({
-          error: "Enter at least one word in the phrase.",
+          error: outcome.error,
         });
       }
-
-      const firstToken = phraseTokens[0].toLowerCase();
-
-      const candidates = db
-        .prepare(
-          `
-      SELECT utterance_id, position
-      FROM words
-      WHERE LOWER(word) = ?
-      ORDER BY utterance_id, position
-      `,
-        )
-        .iterate(firstToken) as Iterable<{
-        utterance_id: number;
-        position: number;
-      }>;
-
-      const collocateCounts = new Map<
-        string,
-        { frequency: number; positions: Record<string, number> }
-      >();
-
-      let currentUtteranceId: number | null = null;
-      let tokens: CorpusToken[] = [];
-
-      for (const candidate of candidates) {
-        if (candidate.utterance_id !== currentUtteranceId) {
-          currentUtteranceId = candidate.utterance_id;
-          tokens = getUtteranceWords(db, currentUtteranceId);
-        }
-
-        const startIndex = tokens.findIndex(
-          (token) => token.position === candidate.position,
-        );
-
-        if (startIndex === -1) continue;
-
-        const occurrence = findPhraseOccurrenceAt(
-          tokens,
-          startIndex,
-          phraseTokens,
-        );
-
-        if (!occurrence) continue;
-
-        const phraseStartPosition = tokens[occurrence.startIndex].position;
-        const phraseEndPosition =
-          tokens[occurrence.endIndexExclusive - 1].position;
-
-        const phraseStartIndex = occurrence.startIndex;
-        const phraseEndIndex = occurrence.endIndexExclusive - 1;
-
-        // Count actual words to the left, skipping punctuation and annotations.
-        let index = phraseStartIndex - 1;
-        let distance = 0;
-
-        while (index >= 0 && distance < leftWindow) {
-          const token = tokens[index];
-          index--;
-
-          if (!/[\p{L}\p{N}]/u.test(token.word)) continue;
-          if (token.word.startsWith("--")) continue;
-
-          distance++;
-          const word = token.word.toLowerCase();
-
-          const existing = collocateCounts.get(word) ?? {
-            frequency: 0,
-            positions: {},
-          };
-
-          existing.frequency++;
-          existing.positions[String(-distance)] =
-            (existing.positions[String(-distance)] ?? 0) + 1;
-
-          collocateCounts.set(word, existing);
-        }
-
-        // Count actual words to the right, skipping punctuation and annotations.
-        index = phraseEndIndex + 1;
-        distance = 0;
-
-        while (index < tokens.length && distance < rightWindow) {
-          const token = tokens[index];
-          index++;
-
-          if (!/[\p{L}\p{N}]/u.test(token.word)) continue;
-          if (token.word.startsWith("--")) continue;
-
-          distance++;
-          const word = token.word.toLowerCase();
-
-          const existing = collocateCounts.get(word) ?? {
-            frequency: 0,
-            positions: {},
-          };
-
-          existing.frequency++;
-          existing.positions[String(distance)] =
-            (existing.positions[String(distance)] ?? 0) + 1;
-
-          collocateCounts.set(word, existing);
-        }
-      }
-
-      const collocations = [...collocateCounts.entries()]
-        .map(([word, data]) => {
-          const positions: Record<string, number> = {};
-
-          for (
-            let position = -leftWindow;
-            position <= rightWindow;
-            position++
-          ) {
-            if (position === 0) continue;
-
-            positions[String(position)] = data.positions[String(position)] ?? 0;
-          }
-
-          return {
-            word,
-            frequency: data.frequency,
-            positions,
-          };
-        })
-        .filter((item) => item.frequency >= minFrequency)
-        .sort(
-          (a, b) => b.frequency - a.frequency || a.word.localeCompare(b.word),
-        )
-        .slice(0, resultLimit);
 
       return res.json({
         query: cleanQuery,
         left_window: leftWindow,
         right_window: rightWindow,
         min_frequency: minFrequency,
-        collocations,
+        collocations: outcome.collocations,
       });
     }
-
-    // -------------------------------------------------------
-    // Build target word search
-    //
-    // Supports:
-    //
-    // word
-    // word*
-    // *word
-    // *word*
-    // -------------------------------------------------------
 
     const wordSearch = buildWordSearch(cleanQuery);
     const variantConditions = [];
@@ -524,16 +261,7 @@ app.get("/api/collocations", (req, res) => {
       });
     }
 
-    // -------------------------------------------------------
-    // Build position columns dynamically
-    //
-    // Example with left=3 and right=3:
-    //
-    // -3, -2, -1, +1, +2, +3
-    //
-    // Position 0 is the target itself and is excluded.
-    // -------------------------------------------------------
-
+    // Generate one frequency column per relative position, excluding the target at 0.
     const positionExpressions = [];
 
     for (let position = -leftWindow; position <= rightWindow; position++) {
@@ -556,15 +284,6 @@ app.get("/api/collocations", (req, res) => {
       positionExpressions.length > 0
         ? `,\n${positionExpressions.join(",\n")}`
         : "";
-
-    // -------------------------------------------------------
-    // Collocation query
-    //
-    // w          = target word
-    // collocate  = nearby word
-    //
-    // Both must belong to the same utterance.
-    // -------------------------------------------------------
 
     const sql = `
       SELECT
@@ -611,15 +330,7 @@ app.get("/api/collocations", (req, res) => {
       resultLimit,
     ];
 
-    // -------------------------------------------------------
-    // Execute query
-    // -------------------------------------------------------
-
     const rows = db.prepare(sql).all(...params) as CollocationRow[];
-
-    // -------------------------------------------------------
-    // Convert SQL result into frontend-friendly structure
-    // -------------------------------------------------------
 
     const collocations = rows.map((row) => {
       const positions: Record<string, number> = {};
@@ -639,12 +350,6 @@ app.get("/api/collocations", (req, res) => {
       };
     });
 
-    console.log("COLLOCATION RESULTS:", collocations.length);
-
-    // -------------------------------------------------------
-    // Response
-    // -------------------------------------------------------
-
     return res.json({
       query: cleanQuery,
       left_window: leftWindow,
@@ -660,9 +365,6 @@ app.get("/api/collocations", (req, res) => {
     });
   }
 });
-// ---------------------------------------------------------
-// COLLOCATION CONCORDANCE
-// ---------------------------------------------------------
 
 app.get("/api/collocations/concordance", (req, res) => {
   const target = String(req.query.target ?? "")
@@ -711,7 +413,7 @@ app.get("/api/collocations/concordance", (req, res) => {
     }
   }
 
-  // Preserve the original phrase-target validation and its HTTP 400 response.
+  // Phrase targets must contain at least two words.
   if (target.includes(" ")) {
     const phraseTokens = tokenizePhrase(target).filter((token) =>
       /[\p{L}\p{N}]/u.test(token),
@@ -748,10 +450,6 @@ app.get("/api/collocations/concordance", (req, res) => {
     });
   }
 });
-
-// ---------------------------------------------------------
-// Start server
-// ---------------------------------------------------------
 
 app.listen(PORT, () => {
   console.log(`BNC API running at http://localhost:${PORT}`);
