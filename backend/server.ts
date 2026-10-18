@@ -8,8 +8,8 @@ import { searchPhrase } from "./phraseSearchService.ts";
 import { searchWords } from "./wordSearchService.ts";
 import { searchCollocationConcordance } from "./collocationConcordanceService.ts";
 import { searchLinguistic } from "./linguisticSearchService.ts";
-import { buildWordSearch } from "./wordSearchHelpers.ts";
 import { searchPhraseCollocations } from "./phraseCollocationService.ts";
+import { searchWordCollocations } from "./wordCollocationService.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,12 +21,6 @@ app.use(cors());
 app.use(express.json());
 
 const db = new Database(path.join(__dirname, "..", "bnc_corpus.db"));
-
-interface CollocationRow {
-  word: string;
-  frequency: number;
-  [position: string]: string | number;
-}
 
 function getQueryString(value: unknown, fallback: string): string {
   return typeof value === "string" ? value : fallback;
@@ -236,126 +230,29 @@ app.get("/api/collocations", (req, res) => {
       });
     }
 
-    const wordSearch = buildWordSearch(cleanQuery);
-    const variantConditions = [];
-    const variantParams = [];
-
-    if (pos) {
-      variantConditions.push("w.pos = ?");
-      variantParams.push(String(pos));
-    }
-
-    if (wordClass) {
-      variantConditions.push("w.class = ?");
-      variantParams.push(String(wordClass));
-    }
-
-    const variantWhere =
-      variantConditions.length > 0
-        ? `AND ${variantConditions.join(" AND ")}`
-        : "";
-
-    if (!wordSearch) {
-      return res.status(400).json({
-        error: "Word searches support zero or one '*' wildcard.",
-      });
-    }
-
-    // Generate one frequency column per relative position, excluding the target at 0.
-    const positionExpressions = [];
-
-    for (let position = -leftWindow; position <= rightWindow; position++) {
-      if (position === 0) {
-        continue;
-      }
-
-      positionExpressions.push(`
-        SUM(
-          CASE
-            WHEN collocate.position = w.position + ${position}
-            THEN 1
-            ELSE 0
-          END
-        ) AS "${position}"
-      `);
-    }
-
-    const positionSelect =
-      positionExpressions.length > 0
-        ? `,\n${positionExpressions.join(",\n")}`
-        : "";
-
-    const sql = `
-      SELECT
-        LOWER(collocate.word) AS word,
-        COUNT(*) AS frequency
-        ${positionSelect}
-
-      FROM words w
-
-      JOIN words collocate
-        ON collocate.utterance_id = w.utterance_id
-
-        AND collocate.position >= w.position - ?
-        AND collocate.position <= w.position + ?
-
-        AND collocate.position != w.position
-
-      WHERE ${wordSearch.sql}
-        ${variantWhere}
-
-        -- Remove punctuation-only tokens
-        AND collocate.word GLOB '*[A-Za-z0-9]*'
-
-        -- Remove BNC annotation tokens
-        AND collocate.word NOT LIKE '--%'
-
-      GROUP BY LOWER(collocate.word)
-
-      HAVING COUNT(*) >= ?
-
-      ORDER BY
-        frequency DESC,
-        word ASC
-
-      LIMIT ?
-    `;
-
-    const params = [
+    const outcome = searchWordCollocations(
+      db,
+      cleanQuery,
       leftWindow,
       rightWindow,
-      ...wordSearch.params,
-      ...variantParams,
       minFrequency,
       resultLimit,
-    ];
+      pos ? String(pos) : undefined,
+      wordClass ? String(wordClass) : undefined,
+    );
 
-    const rows = db.prepare(sql).all(...params) as CollocationRow[];
-
-    const collocations = rows.map((row) => {
-      const positions: Record<string, number> = {};
-
-      for (let position = -leftWindow; position <= rightWindow; position++) {
-        if (position === 0) {
-          continue;
-        }
-
-        positions[String(position)] = Number(row[String(position)] ?? 0);
-      }
-
-      return {
-        word: row.word,
-        frequency: row.frequency,
-        positions,
-      };
-    });
+    if ("error" in outcome) {
+      return res.status(400).json({
+        error: outcome.error,
+      });
+    }
 
     return res.json({
       query: cleanQuery,
       left_window: leftWindow,
       right_window: rightWindow,
       min_frequency: minFrequency,
-      collocations,
+      collocations: outcome.collocations,
     });
   } catch (error) {
     console.error("Collocation search error:", error);
