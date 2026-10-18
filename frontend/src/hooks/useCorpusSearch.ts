@@ -254,6 +254,23 @@ export default function useCorpusSearch() {
   const handleSearch = () => {
     const trimmedQuery = query.trim();
 
+    const wordCount = trimmedQuery.split(/\s+/).filter(Boolean).length;
+
+    const phraseWordCount =
+      trimmedQuery.match(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu)?.length ?? 0;
+
+    if (searchType === "word" && wordCount > 1) {
+      setError(
+        "Word search accepts only one word. Please enter a single word.",
+      );
+      return;
+    }
+
+    if (searchType === "phrase" && trimmedQuery && phraseWordCount < 2) {
+      setError("Phrase search requires 2 or more words.");
+      return;
+    }
+
     if (!trimmedQuery) {
       setResults([]);
       setTotalMatches(0);

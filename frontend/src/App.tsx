@@ -102,6 +102,19 @@ export default function App() {
         ? "Search Lemma"
         : "Search Phrase";
 
+  const trimmedQuery = query.trim();
+
+  const phraseWordCount =
+    trimmedQuery.match(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu)?.length ?? 0;
+
+  const validationMessage = !trimmedQuery
+    ? ""
+    : searchType === "word" && trimmedQuery.split(/\s+/).length > 1
+      ? "Please enter a single word."
+      : searchType === "phrase" && phraseWordCount < 2
+        ? "Please enter 2 or more words."
+        : "";
+
   const resultsHeading = collocationFilter
     ? `Results for "${
         selectedWords.length === 1
@@ -157,8 +170,13 @@ export default function App() {
                 searchPlaceholder={searchPlaceholder}
                 onSearchTypeChange={setSearchType}
                 onQueryChange={setQuery}
-                onSearch={handleSearch}
+                onSearch={() => {
+                  if (!validationMessage) {
+                    handleSearch();
+                  }
+                }}
                 resetSearch={resetSearch}
+                validationMessage={validationMessage}
               />
             </div>
 

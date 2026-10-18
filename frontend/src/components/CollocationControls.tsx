@@ -34,7 +34,7 @@ export default function CollocationControls({
   handleSearchAllVariantsChange,
 }: CollocationControlsProps) {
   return (
-    <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="mb-0 h-full min-h-[200px] rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       {/* Heading */}
       <div className="mb-3">
         <h3 className="text-sm font-semibold text-slate-800">Collocations</h3>

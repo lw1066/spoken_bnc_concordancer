@@ -13,6 +13,7 @@ type SearchControlsProps = {
   submittedSearchType: SearchType;
   concordanceCount: number;
   resetSearch: () => void;
+  validationMessage: string;
 };
 
 export default function SearchControls({
@@ -28,23 +29,25 @@ export default function SearchControls({
   submittedSearchType,
   concordanceCount,
   resetSearch,
+  validationMessage,
 }: SearchControlsProps) {
   return (
-    <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="mb-0 h-full min-h-[200px] rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="mb-3">
         <h3 className="text-sm font-semibold text-slate-800">Concordances</h3>
         <p className="mt-1 text-xs leading-relaxed text-slate-500">
           Choose a word or lemma to examine.
         </p>
       </div>
-      {/* Search Type */}{" "}
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="min-w-0 flex-1">
+
+      <div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto]">
+        {/* Search type */}
+        <div className="min-w-0">
           <label
             htmlFor="search-type"
             className="mb-2 block text-sm font-medium text-slate-700"
           >
-            Search Type{" "}
+            Search Type
           </label>
           <select
             id="search-type"
@@ -58,9 +61,10 @@ export default function SearchControls({
             <option value="lemma">Lemma</option>
             <option value="phrase">Phrase</option>
           </select>
+          <div className="mt-2 min-h-5" aria-hidden="true" />
         </div>
 
-        {/* Search Input and Go Button */}
+        {/* Search query */}
         <div className="min-w-0">
           <label
             htmlFor="search-query"
@@ -68,27 +72,40 @@ export default function SearchControls({
           >
             {searchLabel}
           </label>
-
           <input
             id="search-query"
             type="text"
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                onSearch();
-              }
+              if (event.key === "Enter") onSearch();
             }}
             placeholder={searchPlaceholder}
-            className="h-10 min-w-0 flex-1 rounded-lg border border-slate-300 px-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+            aria-invalid={Boolean(validationMessage)}
+            aria-describedby={
+              validationMessage ? "search-validation" : undefined
+            }
+            className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
           />
+          <div className="mt-2 min-h-5">
+            {validationMessage && (
+              <p
+                id="search-validation"
+                role="alert"
+                className="text-sm leading-5 text-red-700"
+              >
+                {validationMessage}
+              </p>
+            )}
+          </div>
         </div>
-        <div className="flex gap-2 xl:ml-8">
-          {" "}
+
+        {/* Action buttons */}
+        <div className="flex gap-2 sm:pt-7">
           <button
             type="button"
             onClick={onSearch}
-            disabled={loading}
+            disabled={loading || Boolean(validationMessage)}
             className={`h-10 shrink-0 rounded-lg px-4 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${
               loading
                 ? "bg-slate-400 hover:bg-slate-400"

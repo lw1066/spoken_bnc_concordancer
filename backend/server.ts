@@ -88,6 +88,31 @@ app.get("/api/search", (req, res) => {
       });
     }
 
+    const searchQuery = String(query ?? "").trim();
+
+    if (
+      String(search_type) === "word" &&
+      searchQuery.split(/\s+/).filter(Boolean).length > 1
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Word search accepts only one word.",
+      });
+    }
+
+    if (String(search_type) === "phrase") {
+      const phraseWordCount = tokenizePhrase(searchQuery).filter((token) =>
+        /[\p{L}\p{N}]/u.test(token),
+      ).length;
+
+      if (phraseWordCount < 2) {
+        return res.status(400).json({
+          success: false,
+          error: "Phrase search requires 2 or more words.",
+        });
+      }
+    }
+
     if (String(search_type) === "phrase") {
       const outcome = searchPhrase(
         db,
