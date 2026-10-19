@@ -4,12 +4,12 @@ import Database from "better-sqlite3";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { tokenizePhrase } from "./helpers/searchHelpers.ts";
-import { searchPhrase } from "./phraseSearchService.ts";
+import { searchPhrase } from "./services/phraseSearchService.ts";
 import { searchWords } from "./services/wordSearchService.ts";
-import { searchCollocationConcordance } from "./collocationConcordanceService.ts";
-import { searchLinguistic } from "./linguisticSearchService.ts";
-import { searchPhraseCollocations } from "./phraseCollocationService.ts";
-import { searchWordCollocations } from "./wordCollocationService.ts";
+import { searchCollocationConcordance } from "./services/collocationConcordanceService.ts";
+import { searchLinguistic } from "./services/linguisticSearchService.ts";
+import { searchPhraseCollocations } from "./services/phraseCollocationService.ts";
+import { searchWordCollocations } from "./services/wordCollocationService.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
