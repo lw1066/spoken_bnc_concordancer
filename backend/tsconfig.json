@@ -10,6 +10,6 @@
     "allowImportingTsExtensions": true,
     "types": ["node"]
   },
-  "include": ["*.ts"],
+  "include": ["*.ts", "services/**/*.ts", "helpers/**/*.ts"],
   "exclude": ["node_modules"]
 }
