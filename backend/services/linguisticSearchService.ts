@@ -3,9 +3,12 @@ import Database from "better-sqlite3";
 import {
   buildWordConcordanceResults,
   type ConcordanceToken,
-} from "./concordanceHelpers.ts";
+} from "../helpers/concordanceHelpers.ts";
 
-import { getUtteranceMap, getUtteranceWords } from "./databaseHelpers.ts";
+import {
+  getUtteranceMap,
+  getUtteranceWords,
+} from "../helpers/databaseHelpers.ts";
 
 // ---------------------------------------------------------
 // Types

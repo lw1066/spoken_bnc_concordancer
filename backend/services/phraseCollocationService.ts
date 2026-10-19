@@ -1,7 +1,10 @@
 import Database from "better-sqlite3";
-import { findPhraseOccurrenceAt, tokenizePhrase } from "./searchHelpers.ts";
-import { getUtteranceWords } from "./databaseHelpers.ts";
-import type { CorpusToken } from "./databaseHelpers.ts";
+import {
+  findPhraseOccurrenceAt,
+  tokenizePhrase,
+} from "../helpers/searchHelpers.ts";
+import { getUtteranceWords } from "../helpers/databaseHelpers.ts";
+import type { CorpusToken } from "../helpers/databaseHelpers.ts";
 
 interface PhraseCollocation {
   word: string;

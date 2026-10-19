@@ -2,10 +2,16 @@ import Database from "better-sqlite3";
 import {
   buildTokenContext,
   type ConcordanceToken,
-} from "./concordanceHelpers.ts";
-import { getUtteranceMap, getUtteranceWords } from "./databaseHelpers.ts";
-import type { CorpusToken } from "./databaseHelpers.ts";
-import { findPhraseOccurrenceAt, tokenizePhrase } from "./searchHelpers.ts";
+} from "../helpers/concordanceHelpers.ts";
+import {
+  getUtteranceMap,
+  getUtteranceWords,
+} from "../helpers/databaseHelpers.ts";
+import type { CorpusToken } from "../helpers/databaseHelpers.ts";
+import {
+  findPhraseOccurrenceAt,
+  tokenizePhrase,
+} from "../helpers/searchHelpers.ts";
 
 interface CollocationMatch {
   utterance_id: number;

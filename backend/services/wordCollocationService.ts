@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { buildWordSearch } from "./wordSearchHelpers.ts";
+import { buildWordSearch } from "../helpers/wordSearchHelpers.ts";
 
 interface CollocationRow {
   word: string;

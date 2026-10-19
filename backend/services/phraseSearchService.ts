@@ -1,7 +1,10 @@
 import type Database from "better-sqlite3";
-import { findPhraseOccurrenceAt } from "./searchHelpers.ts";
-import { getUtteranceMap, getUtteranceWords } from "./databaseHelpers.ts";
-import type { CorpusToken, UtteranceRow } from "./databaseHelpers.ts";
+import { findPhraseOccurrenceAt } from "../helpers/searchHelpers.ts";
+import {
+  getUtteranceMap,
+  getUtteranceWords,
+} from "../helpers/databaseHelpers.ts";
+import type { CorpusToken, UtteranceRow } from "../helpers/databaseHelpers.ts";
 
 interface PhraseCandidate {
   utterance_id: number;
