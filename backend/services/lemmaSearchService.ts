@@ -37,18 +37,15 @@ interface MatchingWordRow {
   usas: string | null;
 }
 
-interface LinguisticSearchOptions {
+interface LemmaSearchOptions {
   lemma: string;
-  pos?: string;
-  wordClass?: string;
-  usas?: string;
   filterWords: unknown;
   page: number;
   limit: number;
   window: number;
 }
 
-interface LinguisticSearchResult {
+interface LemmaSearchResult {
   total_matches: number;
   page: number;
   limit: number;
@@ -92,20 +89,11 @@ function getSelectedWords(filterWords: unknown): SelectedWord[] {
 // Linguistic search
 // ---------------------------------------------------------
 
-export function searchLinguistic(
+export function searchLemma(
   db: InstanceType<typeof Database>,
-  options: LinguisticSearchOptions,
-): LinguisticSearchResult {
-  const {
-    lemma,
-    pos = "",
-    wordClass = "",
-    usas = "",
-    filterWords,
-    page,
-    limit,
-    window,
-  } = options;
+  options: LemmaSearchOptions,
+): LemmaSearchResult {
+  const { lemma, filterWords, page, limit, window } = options;
 
   const conditions: string[] = [];
   const params: string[] = [];
@@ -113,21 +101,6 @@ export function searchLinguistic(
   if (lemma.trim()) {
     conditions.push("LOWER(w.lemma) = LOWER(?)");
     params.push(lemma.trim());
-  }
-
-  if (pos.trim()) {
-    conditions.push("LOWER(w.pos) = LOWER(?)");
-    params.push(pos.trim());
-  }
-
-  if (wordClass.trim()) {
-    conditions.push("LOWER(w.class) = LOWER(?)");
-    params.push(wordClass.trim());
-  }
-
-  if (usas.trim()) {
-    conditions.push("LOWER(w.usas) = LOWER(?)");
-    params.push(usas.trim());
   }
 
   const selectedWords = getSelectedWords(filterWords);
@@ -231,9 +204,6 @@ export function searchLinguistic(
         w.utterance_id,
         w.position,
         w.word,
-        w.lemma,
-        w.pos,
-        w.class,
         w.usas
       FROM words w
       WHERE ${resultWhere}

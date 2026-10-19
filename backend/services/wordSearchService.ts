@@ -7,6 +7,10 @@ import {
   getUtteranceMap,
   getUtteranceWords,
 } from "../helpers/databaseHelpers.ts";
+import {
+  buildWordSearch,
+  type WordSearchCondition,
+} from "../helpers/wordSearchHelpers.ts";
 
 interface SelectedWord {
   word: string;
@@ -35,11 +39,6 @@ interface MatchingWordRow {
   usas: string | null;
 }
 
-interface WordSearchCondition {
-  sql: string;
-  params: string[];
-}
-
 interface WordSearchOptions {
   query: string;
   page: number;
@@ -60,51 +59,6 @@ interface WordSearchResult {
 interface WordSearchError {
   success: false;
   error: string;
-}
-
-function buildWordSearch(query: string): WordSearchCondition | null {
-  const value = query.toLowerCase();
-  const starCount = (value.match(/\*/g) || []).length;
-
-  if (starCount === 0) {
-    return {
-      sql: "LOWER(w.word) = ?",
-      params: [value],
-    };
-  }
-
-  if (starCount > 1) {
-    if (starCount !== 2 || !value.startsWith("*") || !value.endsWith("*")) {
-      return null;
-    }
-
-    const core = value.slice(1, -1);
-
-    if (!core) {
-      return null;
-    }
-
-    return {
-      sql: "LOWER(w.word) LIKE ?",
-      params: [`%${core}%`],
-    };
-  }
-
-  if (value.startsWith("*")) {
-    return {
-      sql: "LOWER(w.word) LIKE ?",
-      params: [`%${value.slice(1)}`],
-    };
-  }
-
-  if (value.endsWith("*")) {
-    return {
-      sql: "LOWER(w.word) LIKE ?",
-      params: [`${value.slice(0, -1)}%`],
-    };
-  }
-
-  return null;
 }
 
 function getSelectedWords(filterWords: unknown): SelectedWord[] {
@@ -160,6 +114,17 @@ export function searchWords(
   }
 
   const wordSearch = buildWordSearch(cleanQuery);
+
+  console.log("WORD SEARCH CONDITION:", wordSearch);
+
+  console.log(
+    "DIRECT LIKE PROBE:",
+    db
+      .prepare(
+        "SELECT LOWER(w.word) AS word FROM words w WHERE LOWER(w.word) LIKE ? ORDER BY word",
+      )
+      .all("%ly"),
+  );
 
   if (!wordSearch) {
     return {
@@ -227,6 +192,7 @@ export function searchWords(
 
   console.log("RESULT WHERE:", resultWhere);
   console.log("RESULT PARAMS:", resultParams);
+  console.log("WORD SEARCH CONDITION:", wordSearch);
 
   const countStart = Date.now();
 
