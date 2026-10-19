@@ -4,7 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "jest"
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "jest",
+    "test:frontend": "jest --config frontend/jest.config.cjs"
   },
   "keywords": [],
   "author": "",
