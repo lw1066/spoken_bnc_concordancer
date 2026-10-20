@@ -129,7 +129,6 @@ export function createApp(db: Database.Database) {
         });
       }
 
-      console.log("API ROUTE: calling searchWords");
       const outcome = searchWords(db, {
         query: String(query ?? ""),
         page: currentPage,

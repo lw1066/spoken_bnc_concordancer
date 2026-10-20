@@ -115,17 +115,6 @@ export function searchWords(
 
   const wordSearch = buildWordSearch(cleanQuery);
 
-  console.log("WORD SEARCH CONDITION:", wordSearch);
-
-  console.log(
-    "DIRECT LIKE PROBE:",
-    db
-      .prepare(
-        "SELECT LOWER(w.word) AS word FROM words w WHERE LOWER(w.word) LIKE ? ORDER BY word",
-      )
-      .all("%ly"),
-  );
-
   if (!wordSearch) {
     return {
       success: false,
@@ -134,9 +123,6 @@ export function searchWords(
   }
 
   const selectedWords = getSelectedWords(filterWords);
-
-  console.log("WORD QUERY:", cleanQuery);
-  console.log("SELECTED WORDS:", selectedWords);
 
   let uniqueWords: UniqueWord[] = [];
 
@@ -158,8 +144,6 @@ export function searchWords(
         `,
       )
       .all(...wordSearch.params) as UniqueWord[];
-
-    console.log("Vocabulary variants:", Date.now() - variantsStart, "ms");
   }
 
   let resultConditions: string[];
@@ -190,10 +174,6 @@ export function searchWords(
 
   const resultWhere = resultConditions.join(" AND ");
 
-  console.log("RESULT WHERE:", resultWhere);
-  console.log("RESULT PARAMS:", resultParams);
-  console.log("WORD SEARCH CONDITION:", wordSearch);
-
   const countStart = Date.now();
 
   const totalRow = db
@@ -207,8 +187,6 @@ export function searchWords(
     .get(...resultParams) as CountRow | undefined;
 
   const totalMatches = totalRow?.count ?? 0;
-
-  console.log("COUNT query:", Date.now() - countStart, "ms");
 
   if (totalMatches === 0) {
     return {
@@ -242,8 +220,6 @@ export function searchWords(
       `,
     )
     .all(...resultParams, limit, startIndex) as MatchingWordRow[];
-
-  console.log("Matching words query:", Date.now() - matchesStart, "ms");
 
   if (matchingWords.length === 0) {
     return {
@@ -284,8 +260,6 @@ export function searchWords(
     tokenCache,
     window,
   );
-
-  console.log("Context building:", Date.now() - contextStart, "ms");
 
   return {
     success: true,
