@@ -9,7 +9,7 @@ import ConcordanceTable from "./components/ConcordanceTable";
 import Pagination from "./components/Pagination";
 import ResultDetailsModal from "./components/ResultDetailsModal";
 import CollocationsPanel from "./components/CollocationsPanel";
-import ResultsToolbar from "./components/resultsToolbar";
+import ResultsToolbar from "./components/ResultsToolbar";
 import { getPosLabel } from "./utils/posLabels";
 
 export default function App() {

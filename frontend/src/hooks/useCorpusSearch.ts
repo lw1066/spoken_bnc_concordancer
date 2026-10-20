@@ -272,6 +272,7 @@ export default function useCorpusSearch() {
     }
 
     if (!trimmedQuery) {
+      setSubmittedQuery("");
       setResults([]);
       setTotalMatches(0);
       setUniqueWords([]);

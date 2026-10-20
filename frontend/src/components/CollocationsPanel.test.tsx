@@ -26,6 +26,11 @@ jest.doMock("./CollocationDistributionChart", () => ({
       React.createElement("span", null, `Chart: ${collocate} / ${target}`),
       React.createElement(
         "span",
+        { "data-testid": "chart-positions" },
+        JSON.stringify(positions),
+      ),
+      React.createElement(
+        "span",
         null,
         `Active position: ${activePosition ?? "none"}`,
       ),
@@ -282,5 +287,39 @@ describe("CollocationsPanel", () => {
     );
 
     expect(screen.getByText("Active position: none")).toBeInTheDocument();
+  });
+
+  it("passes the selected collocate's position frequencies to the chart", () => {
+    renderPanel({
+      selectedCollocation: "very",
+    });
+
+    const chart = screen.getByTestId("distribution-chart");
+
+    expect(within(chart).getByTestId("chart-positions")).toHaveTextContent(
+      JSON.stringify({
+        "-1": 20,
+        "1": 22,
+      }),
+    );
+  });
+
+  it("shows the correct chart when switching between collocates", () => {
+    const { rerender } = renderPanel({
+      selectedCollocation: "very",
+    });
+
+    expect(screen.getByText("Chart: very / happy")).toBeInTheDocument();
+
+    rerender(
+      <CollocationsPanel {...defaultProps} selectedCollocation="good" />,
+    );
+
+    expect(screen.queryByText("Chart: very / happy")).not.toBeInTheDocument();
+    expect(screen.getByText("Chart: good / happy")).toBeInTheDocument();
+
+    expect(screen.getByTestId("chart-positions")).toHaveTextContent(
+      JSON.stringify({ "1": 18 }),
+    );
   });
 });
