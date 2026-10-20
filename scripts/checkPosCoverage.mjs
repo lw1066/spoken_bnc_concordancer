@@ -5,9 +5,10 @@ import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const projectRoot = path.resolve(__dirname, "..");
 
-const dbPath = path.join(__dirname, "bnc_corpus.db");
-const tsPath = path.join(__dirname, "frontend/src/utils/posLabels.ts");
+const dbPath = path.join(projectRoot, "bnc_corpus.db");
+const tsPath = path.join(projectRoot, "frontend/src/utils/posLabels.ts");
 
 if (!fs.existsSync(dbPath)) {
   throw new Error(`Database not found: ${dbPath}`);

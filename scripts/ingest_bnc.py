@@ -4,9 +4,11 @@ import re
 import sqlite3
 import xml.etree.ElementTree as ET
 
+from pathlib import Path
 
-CORPUS_DIR = "corpus_files"
-DB_PATH = "bnc_corpus.db"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+CORPUS_DIR = PROJECT_ROOT / "corpus_files"
+DB_PATH = PROJECT_ROOT / "bnc_corpus.db"
 
 BATCH_SIZE = 1000
 

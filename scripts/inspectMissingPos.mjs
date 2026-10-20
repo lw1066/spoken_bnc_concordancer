@@ -1,6 +1,14 @@
 import Database from "better-sqlite3";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const db = new Database("./bnc_corpus.db", { readonly: true });
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const projectRoot = path.resolve(__dirname, "..");
+
+const db = new Database(path.join(projectRoot, "bnc_corpus.db"), {
+  readonly: true,
+});
 
 const tags = [
   "RR21",

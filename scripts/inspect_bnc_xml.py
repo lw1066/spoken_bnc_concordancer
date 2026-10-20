@@ -1,8 +1,10 @@
 import os
 import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
+from pathlib import Path
 
-CORPUS_PATH = "./corpus_files"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+CORPUS_PATH = PROJECT_ROOT / "corpus_files"
 
 
 def inspect_corpus():
