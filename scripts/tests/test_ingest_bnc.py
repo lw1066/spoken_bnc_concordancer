@@ -7,9 +7,9 @@ import unittest
 from pathlib import Path
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 INGEST_SCRIPT = PROJECT_ROOT / "scripts" / "ingest_bnc.py"
-XML_FIXTURE = PROJECT_ROOT / "tests" / "fixtures" / "SQ2W-tgd.xml"
+XML_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "SQ2W-tgd.xml"
 
 
 class TestBncIngestion(unittest.TestCase):
