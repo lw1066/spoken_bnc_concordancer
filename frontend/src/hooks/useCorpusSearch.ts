@@ -10,6 +10,8 @@ import type {
 } from "../types/corpus";
 
 export default function useCorpusSearch() {
+  const apiBaseUrl =
+    import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
   const [searchType, setSearchType] = useState<SearchType>("word");
   const [submittedSearchType, setSubmittedSearchType] =
     useState<SearchType>("word");
@@ -84,8 +86,6 @@ export default function useCorpusSearch() {
       params.set("limit", String(limit));
       params.set("page", String(page));
 
-      const apiBaseUrl =
-        import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
       const url = `${apiBaseUrl}/api/search?${params.toString()}`;
       const response = await fetch(url);
 
@@ -165,7 +165,7 @@ export default function useCorpusSearch() {
       params.set("min_frequency", String(minCollocationFrequency));
 
       const response = await fetch(
-        `http://localhost:8000/api/collocations?${params.toString()}`,
+        `${apiBaseUrl}/api/collocations?${params.toString()}`,
       );
 
       if (!response.ok) {
@@ -229,7 +229,7 @@ export default function useCorpusSearch() {
       }
 
       const response = await fetch(
-        `http://localhost:8000/api/collocations/concordance?${params.toString()}`,
+        `${apiBaseUrl}/api/collocations/concordance?${params.toString()}`,
       );
 
       if (!response.ok) {
