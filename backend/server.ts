@@ -12,6 +12,6 @@ const db = new Database(path.join(__dirname, "..", dbFile));
 const app = createApp(db);
 const PORT = 8000;
 
-app.listen(PORT, () => {
+app.listen(PORT, "127.0.0.1", () => {
   console.log(`BNC API running at http://localhost:${PORT}`);
 });
