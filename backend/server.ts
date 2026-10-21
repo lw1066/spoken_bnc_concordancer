@@ -6,7 +6,8 @@ import { createApp } from "./app.ts";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const db = new Database(path.join(__dirname, "..", "bnc_corpus.db"));
+const dbFile = process.env.CORPUS_DB ?? "bnc_corpus.db";
+const db = new Database(path.join(__dirname, "..", dbFile));
 
 const app = createApp(db);
 const PORT = 8000;
