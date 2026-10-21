@@ -17,9 +17,16 @@ function getQueryString(value: unknown, fallback: string): string {
 export function createApp(db: Database.Database) {
   const app = express();
 
-  app.use(cors());
-  app.use(express.json());
+  app.use(
+    cors({
+      origin: [
+        "https://spokenbncconcordancer.netlify.app",
+        "http://localhost:5173",
+      ],
+    }),
+  );
 
+  app.use(express.json());
   app.get("/", (_req, res) => {
     res.json({
       status: "success",
