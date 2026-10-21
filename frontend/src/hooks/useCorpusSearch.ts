@@ -84,7 +84,9 @@ export default function useCorpusSearch() {
       params.set("limit", String(limit));
       params.set("page", String(page));
 
-      const url = `http://localhost:8000/api/search?${params.toString()}`;
+      const apiBaseUrl =
+        import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+      const url = `${apiBaseUrl}/api/search?${params.toString()}`;
       const response = await fetch(url);
 
       if (!response.ok) {
