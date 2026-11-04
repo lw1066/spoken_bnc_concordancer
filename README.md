@@ -4,6 +4,17 @@ Explore words, phrases and collocations in the Spoken British National Corpus 20
 
 Built with React, TypeScript, Express, SQLite and Python, this project connects my background in applied linguistics with software development. It turns annotated corpus XML into a searchable database and lets users move from a broad search to individual examples of language in context.
 
+## Screenshots
+
+### Concordance search
+
+![Word search results displayed as keyword-in-context concordance lines](docs/images/concordance.png)
+
+### Collocation analysis
+
+![Collocation frequencies and their distribution around the target word](docs/images/collocation.png)
+![Additional collocation analysis view](docs/images/collocation2.png)
+
 ## Features
 
 - **Word searches:** exact matches and prefix, suffix or substring wildcards, such as `hard*`, `*ing` and `*core*`.
