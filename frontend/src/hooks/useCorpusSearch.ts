@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { API_BASE_URL } from "../config/api";
 
 import type {
   ApiResponse,
@@ -10,8 +11,7 @@ import type {
 } from "../types/corpus";
 
 export default function useCorpusSearch() {
-  const apiBaseUrl =
-    import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+  const apiBaseUrl = API_BASE_URL;
   const [searchType, setSearchType] = useState<SearchType>("word");
   const [submittedSearchType, setSubmittedSearchType] =
     useState<SearchType>("word");

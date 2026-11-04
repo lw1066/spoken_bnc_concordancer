@@ -5,6 +5,10 @@ module.exports = {
 
   setupFilesAfterEnv: ["<rootDir>/src/test/setup.ts"],
 
+  moduleNameMapper: {
+    "^\\.\\./config/api$": "<rootDir>/src/test/apiConfig.ts",
+  },
+
   transform: {
     "^.+\\.[tj]sx?$": [
       "@swc/jest",
