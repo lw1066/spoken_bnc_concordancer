@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, expect, it, jest } from "@jest/globals";
+import "@testing-library/jest-dom/jest-globals";
 
 type Datum = {
   position: string;
@@ -113,8 +114,9 @@ jest.doMock("recharts", () => {
   };
 });
 
-const CollocationDistributionChart =
-  require("./CollocationDistributionChart").default;
+const CollocationDistributionChart = jest.requireActual<
+  typeof import("./CollocationDistributionChart")
+>("./CollocationDistributionChart").default;
 
 const positions = {
   "-2": 5,

@@ -437,4 +437,58 @@ describe("useCorpusSearch", () => {
       expect(fetchMock).toHaveBeenCalled();
     });
   });
+  it("requests page one directly when the page size changes", async () => {
+    const { result } = renderHook(() => useCorpusSearch());
+    act(() => result.current.setQuery("honestly"));
+    act(() => result.current.handleSearch());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.setPage(3));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    fetchMock.mockClear();
+    act(() => result.current.setLimit(50));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const url = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(url.searchParams.get("limit")).toBe("50");
+    expect(url.searchParams.get("page")).toBe("1");
+  });
+
+  it("ignores an old response when a newer search has completed", async () => {
+    let finishOld!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((resolve) => {
+      finishOld = resolve;
+    }));
+    const { result } = renderHook(() => useCorpusSearch());
+    act(() => result.current.setQuery("old"));
+    act(() => result.current.handleSearch());
+    const oldSignal = fetchMock.mock.calls[0][1]?.signal;
+    act(() => result.current.setQuery("new"));
+    act(() => result.current.handleSearch());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(oldSignal?.aborted).toBe(true);
+    await act(async () => {
+      finishOld({ ok: true, json: async () => mockApiResponse({ results: [], total_matches: 999 }) } as Response);
+    });
+    expect(result.current.results).toEqual([mockResult]);
+    expect(result.current.totalMatches).toBe(1);
+  });
+
+  it("paginates collocation concordances with the selected position", async () => {
+    const { result } = renderHook(() => useCorpusSearch());
+    act(() => result.current.setQuery("honestly"));
+    act(() => result.current.handleSearch());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.updateCollocationFilter({ word: "think", position: -1 }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    fetchMock.mockClear();
+    act(() => result.current.setPage(2));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const url = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(url.pathname).toBe("/api/collocations/concordance");
+    expect(url.searchParams.get("page")).toBe("2");
+    expect(url.searchParams.get("position")).toBe("-1");
+    expect(url.searchParams.get("collocate")).toBe("think");
+  });
+
 });
